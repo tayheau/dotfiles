@@ -139,32 +139,15 @@ local render_art_text = function(win, art_arr, text_arr)
 	end)
 end
 
-local todos = {
-	"Welcome tayheau",
-	"",
-	"",
-	"[x][Fix][Nux] guicursor transparency",
-	"[x][Fix][Dashboard] landing page starting concatenation on full vs windowed",
-	"[-] Watch some tinygrad streaming"
-}
-
 local colorscheme = {
 	"#33DF4E",
 	"#F92A82",
+	"#007CBE",
 	"#FF8552",
 	"#FFD639",
-	"#007CBE"
 }
 
 local todo_path = vim.fs.normalize("~/todo_nvim")
-local read_todo_file = function(path)
-	local lines = {}
-	for l in io.lines(path) do
-		table.insert(lines, l)
-	end
-	return lines
-end
-
 
 local all_tags = {}
 local tag_to_color = {}
@@ -187,15 +170,16 @@ local get_tag_color = function(tag)
 	return tag_to_color[tag]
 end
 
+local status_map = {
+	["x"] = { name = "done", icon = "●", priority = 3 },
+	["-"] = { name = "in_progress", icon = "◎", priority = 1 },
+	[" "] = { name = "to_do", icon = "○", priority = 2 },
+}
+
 local parse_task = function(line, tag_list)
-	local status_map = {
-		["x"] = "done",
-		["-"] = "in_progress",
-		[" "] = "to_do"
-	}
 	line = line:match("^%s*(.-)%s*$")
-	local status, rest = line:match("^%[(.)%]%s*(.*)$")
-	if not status then return end
+	local raw_status, rest = line:match("^%[(.)%]%s*(.*)$")
+	if not raw_status then return end
 	local tags = {}
 	rest:gsub("%b[]", function(tag)
 		table.insert(tags, tag:sub(2, -2))
@@ -203,66 +187,76 @@ local parse_task = function(line, tag_list)
 	end
 	)
 	local text = rest:gsub("(%[.+])%s*", "")
-	return { status_map[status], tags, text }
+	local status = status_map[raw_status]
+	return { status = status, tags = tags, text = text }
 end
 
 local load_tasks = function(path)
 	local tasks = {}
-	for l in io.lines(path) do
-		local task = parse_task(l, all_tags)
-		-- if task then table.insert(tasks, task) end
-
+	for task in io.lines(path) do
 		table.insert(tasks, task)
 	end
 	return tasks
 end
 
-
-
 local ns = vim.api.nvim_create_namespace("todos_dsa")
 
+--
+-- local filtering_tags = {
+--		["done"] = true,
+--		["in_progress"] = true,
+--		["done"] = false
+-- 	}
 
-local render_todos = function(win, buf, printed_text, todo_list, ignore_done)
+local render_todos = function(buf, lines, filtering_status, sorting, ignore_line)
 	vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-	local width = vim.api.nvim_win_get_width(win)
+	-- local width = vim.api.nvim_win_get_width(win)
 	local height = vim.api.nvim_buf_line_count(buf)
-	local map_status_digraph = {
-		["done"] = "●",
-		["in_progress"] = "◎",
-		["to_do"] = "○"
-	}
 	local largest_tag = 0
 	local filtered_todos = {}
-	for _, todo in pairs(todo_list) do
-		-- if not ignore_done and todo[1] ~= "done" then
-		table.insert(filtered_todos, todo)
-		largest_tag = math.max(largest_tag, #table.concat(todo[2]) + 2 * #todo[2])
+
+	for _, u_todo in pairs(lines) do
+		local todo = parse_task(u_todo, all_tags)
+		if filtering_status[todo.status.name] then
+			table.insert(filtered_todos, todo)
+			largest_tag = math.max(largest_tag, #table.concat(todo.tags) + 2 * #todo.tags)
+		end
 	end
 
-	local num_todo = #filtered_todos
+	if sorting or sorting == nil then
+		table.sort(filtered_todos, function(a, b)
+			return a.status.priority < b.status.priority
+		end
+		)
+	end
+
+	-- local num_todo = #filtered_todos
 	local start_line = math.max(1, math.floor(height - #filtered_todos - 3))
 
-	for _, l_todo in pairs(filtered_todos) do
-		local state, tags, task = l_todo[1], l_todo[2], l_todo[3]
-		local tag_l = 0
-		local virt_text = {}
-		for _, tag in ipairs(tags) do
-			table.insert(virt_text, { "[" .. tag .. "]", get_tag_color(tag) })
-			tag_l = tag_l + #tag + 2
+	for i, l_todo in ipairs(filtered_todos) do
+		if i ~= ignore_line then
+			-- local state, tags, task = l_todo[1], l_todo[2], l_todo[3]
+			local tag_l = 0
+			local virt_text = {}
+			for _, tag in ipairs(l_todo.tags) do
+				table.insert(virt_text, { "[" .. tag .. "]", get_tag_color(tag) })
+				tag_l = tag_l + #tag + 2
+			end
+			-- if #tags > 0 then table.insert(virt_text, { " " }) end
+			table.insert(virt_text, { " " })
+
+			table.insert(virt_text, {
+				l_todo.status.icon .. " ", "TodoState"
+			})
+			table.insert(virt_text, { l_todo.text, "TodoTask" })
+
+			vim.api.nvim_buf_set_extmark(buf, ns, start_line - 1, 0, {
+				virt_text = virt_text,
+				hl_mode = "combine",
+				virt_text_pos = "overlay",
+				-- virt_text_win_col = 25 + largest_tag - tag_l
+			})
 		end
-		-- if #tags > 0 then table.insert(virt_text, { " " }) end
-		table.insert(virt_text, { " " })
-
-		table.insert(virt_text, {
-			map_status_digraph[state] .. " ", "TodoState"
-		})
-		table.insert(virt_text, { task, "TodoTask" })
-
-		vim.api.nvim_buf_set_extmark(buf, ns, start_line - 1, 0, {
-			virt_text = virt_text,
-			virt_text_pos = "overlay",
-			virt_text_win_col = 25 + largest_tag - tag_l
-		})
 		start_line = start_line + 1
 	end
 end
@@ -289,7 +283,12 @@ vim.api.nvim_create_autocmd("VimEnter", {
 		local todo_list = load_tasks(todo_path)
 		local text = render_art_text(win, art, { "Welcome Tayheau" })
 		vim.api.nvim_buf_set_lines(buf, 0, -1, false, text)
-		render_todos(win, buf, { "Welcome Tayheau" }, todo_list, true)
+		local filtering_tags = {
+			["done"] = false,
+			["in_progress"] = true,
+			["to_do"] = true
+		}
+		render_todos(buf, todo_list, filtering_tags)
 		local close_events = {
 			"InsertCharPre", "CursorMoved"
 		}
@@ -305,3 +304,38 @@ vim.api.nvim_create_autocmd("VimEnter", {
 		})
 	end
 })
+
+local filtering_tags = {
+	["done"] = true,
+	["in_progress"] = true,
+	["to_do"] = true
+}
+
+local setup_todo_render = function(buf)
+	local refresh = function(skip_line)
+		local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+		render_todos(buf, lines, filtering_tags, false, skip_line)
+	end
+
+	---@param event vim.api.keyset.events
+	local autocmd = function(event, callback)
+		vim.api.nvim_create_autocmd(event, {
+			group = aucomd_group,
+			buffer = buf,
+			callback = callback
+		})
+	end
+
+	autocmd("CursorMoved", function()
+		local pos = vim.api.nvim_win_get_cursor(0)[1]
+		vim.print(vim.fn.line("v"))
+		refresh(pos)
+	end
+	)
+
+	autocmd("WinLeave", function() refresh() end)
+end
+
+local todo_list = vim.api.nvim_buf_get_lines(5, 0, -1, false)
+setup_todo_render(5)
+render_todos(5, todo_list, filtering_tags, false)
