@@ -144,6 +144,7 @@ local colorscheme = {
 	"#F92A82",
 	"#007CBE",
 	"#FF8552",
+	-- "#ffffff",
 	"#FFD639",
 }
 
@@ -170,6 +171,10 @@ local get_tag_color = function(tag)
 	return tag_to_color[tag]
 end
 
+local old = vim.api.nvim_get_hl(0, { name = "Question" })
+old["italic"] = true
+vim.api.nvim_set_hl(0, "testCode", old)
+
 local status_map = {
 	["x"] = { name = "done", icon = "●", priority = 3 },
 	["-"] = { name = "in_progress", icon = "◎", priority = 1 },
@@ -181,14 +186,30 @@ local parse_task = function(line, tag_list)
 	local raw_status, rest = line:match("^%[(.)%]%s*(.*)$")
 	if not raw_status then return end
 	local tags = {}
-	rest:gsub("%b[]", function(tag)
+	local text = rest:gsub("%b[]", function(tag)
 		table.insert(tags, tag:sub(2, -2))
 		tag_list[tag:sub(2, -2)] = true
+		return ""
 	end
 	)
-	local text = rest:gsub("(%[.+])%s*", "")
+	local last_pos = 1
+	text = text:match("^%s*(.-)%s*$")
+	local tokens = {}
+	for pre, code, post in text:gmatch("(.-)`(.-)`()") do
+		if pre ~= "" then
+			table.insert(tokens, { "text" , pre })
+		end
+		table.insert(tokens, { "code" , code })
+		last_pos = post
+	end
+	if last_pos <= #text then
+		table.insert(tokens, { "text" , text:sub(last_pos) })
+	end
+	-- vim.print(tokens)
+
+
 	local status = status_map[raw_status]
-	return { status = status, tags = tags, text = text }
+	return { status = status, tags = tags, tokens = tokens }
 end
 
 local load_tasks = function(path)
@@ -208,19 +229,72 @@ local ns = vim.api.nvim_create_namespace("todos_dsa")
 --		["done"] = false
 -- 	}
 
-local render_todos = function(buf, lines, filtering_status, sorting, ignore_line)
+---@return vim.api.keyset.set_extmark
+local overing_layout = function(buf, todo, i, ignore)
+	if ignore then return {} end
+	local trailing_spaces = 1
+	local virt_text = {}
+	table.insert(virt_text, {
+		todo.status.icon .. " ", "TodoState"
+	})
+	for _, tag in ipairs(todo.tags) do
+		table.insert(virt_text, { "[" .. tag .. "]", get_tag_color(tag) })
+	end
+	table.insert(virt_text, { " " })
+	for _, token in pairs(todo.tokens) do
+			local k, v = token[1], token[2]
+			table.insert(virt_text, { v, k == "code" and "testCode" or "" })
+			if k == "code" then trailing_spaces = trailing_spaces + 2 end
+	end
+
+	table.insert(virt_text, { string.rep(" ", trailing_spaces) })
+	return {
+		virt_text = virt_text,
+		hl_mode = "combine",
+		virt_text_pos = "overlay"
+	}
+end
+
+---@return vim.api.keyset.set_extmark
+local startup_layout = function(buf, todo, i, ignore)
+	local virt_text = {}
+	local tag_l = 0
+	for _, tag in pairs(todo.tags) do
+		table.insert(virt_text, { "[" .. tag .. "]", get_tag_color(tag) })
+		tag_l = tag_l + #tag + 2
+	end
+	table.insert(virt_text, { " " })
+	table.insert(virt_text, { todo.status.icon .. " ", "TodoState" })
+	table.insert(virt_text, { todo.text .. " ", "TodoTask" })
+	return {
+		virt_text = virt_text,
+		hl_mode = "combine",
+		virt_text_pos = "overlay",
+		virt_text_win_col = 25 + vim.b[buf].largest_tag - tag_l
+	}
+end
+-- ┣ VR
+-- ┗ UR
+
+
+---@param buf number
+---@param sorting? boolean
+---@param layout_fn function
+local render_todos = function(buf, lines, filtering_status, sorting, skip_lines, layout_fn)
 	vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
 	-- local width = vim.api.nvim_win_get_width(win)
 	local height = vim.api.nvim_buf_line_count(buf)
-	local largest_tag = 0
+	vim.b[buf].largest_tag = 0
 	local filtered_todos = {}
+
 
 	for _, u_todo in pairs(lines) do
 		local todo = parse_task(u_todo, all_tags)
 		if filtering_status[todo.status.name] then
 			table.insert(filtered_todos, todo)
-			largest_tag = math.max(largest_tag, #table.concat(todo.tags) + 2 * #todo.tags)
+			vim.b[buf].largest_tag = math.max(vim.b[buf].largest_tag, #table.concat(todo.tags) + 2 * #todo.tags)
 		end
+		-- ::continue::
 	end
 
 	if sorting or sorting == nil then
@@ -234,29 +308,10 @@ local render_todos = function(buf, lines, filtering_status, sorting, ignore_line
 	local start_line = math.max(1, math.floor(height - #filtered_todos - 3))
 
 	for i, l_todo in ipairs(filtered_todos) do
-		if i ~= ignore_line then
-			-- local state, tags, task = l_todo[1], l_todo[2], l_todo[3]
-			local tag_l = 0
-			local virt_text = {}
-			for _, tag in ipairs(l_todo.tags) do
-				table.insert(virt_text, { "[" .. tag .. "]", get_tag_color(tag) })
-				tag_l = tag_l + #tag + 2
-			end
-			-- if #tags > 0 then table.insert(virt_text, { " " }) end
-			table.insert(virt_text, { " " })
-
-			table.insert(virt_text, {
-				l_todo.status.icon .. " ", "TodoState"
-			})
-			table.insert(virt_text, { l_todo.text, "TodoTask" })
-
-			vim.api.nvim_buf_set_extmark(buf, ns, start_line - 1, 0, {
-				virt_text = virt_text,
-				hl_mode = "combine",
-				virt_text_pos = "overlay",
-				-- virt_text_win_col = 25 + largest_tag - tag_l
-			})
-		end
+		local ignore_line = not (skip_lines == nil or i < skip_lines[1] or i > skip_lines[2])
+		local extmark_opts = vim.fn.call(layout_fn, { buf, l_todo, i, ignore_line })
+		vim.api.nvim_buf_set_extmark(buf, ns, start_line - 1, 0, extmark_opts)
+		-- end
 		start_line = start_line + 1
 	end
 end
@@ -288,7 +343,8 @@ vim.api.nvim_create_autocmd("VimEnter", {
 			["in_progress"] = true,
 			["to_do"] = true
 		}
-		render_todos(buf, todo_list, filtering_tags)
+		-- vim.b[buf].largest_tag = compute_max_tag_length(todo_list)
+		render_todos(buf, todo_list, filtering_tags, true, nil, startup_layout)
 		local close_events = {
 			"InsertCharPre", "CursorMoved"
 		}
@@ -311,31 +367,39 @@ local filtering_tags = {
 	["to_do"] = true
 }
 
-local setup_todo_render = function(buf)
+-- setup all the autocmds allocated to a buffer
+local setup_todo_buf_render = function(buf, layout_fn)
 	local refresh = function(skip_line)
 		local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-		render_todos(buf, lines, filtering_tags, false, skip_line)
+		render_todos(buf, lines, filtering_tags, false, skip_line, layout_fn)
 	end
+	refresh()
 
 	---@param event vim.api.keyset.events
 	local autocmd = function(event, callback)
 		vim.api.nvim_create_autocmd(event, {
 			group = aucomd_group,
 			buffer = buf,
-			callback = callback
+			callback = callback,
+			-- cant use both pattern and buffer so no "*:[vV\x16]*" :(
 		})
 	end
 
 	autocmd("CursorMoved", function()
-		local pos = vim.api.nvim_win_get_cursor(0)[1]
-		vim.print(vim.fn.line("v"))
+		local pos = { vim.fn.line("."), vim.fn.line("v") }
+		table.sort(pos)
 		refresh(pos)
 	end
 	)
 
+	-- autocmd("ModeChanged", function()
+	-- 	local pos = { vim.fn.line("."), vim.fn.line("v") }
+	-- 	table.sort(pos)
+	-- 	refresh(pos)
+	-- end
+	-- )
+
 	autocmd("WinLeave", function() refresh() end)
 end
 
-local todo_list = vim.api.nvim_buf_get_lines(5, 0, -1, false)
-setup_todo_render(5)
-render_todos(5, todo_list, filtering_tags, false)
+setup_todo_buf_render(5, overing_layout)
