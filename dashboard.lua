@@ -1,0 +1,518 @@
+local art = {
+	"                 ▀▄          ",
+	"                ▄▀           ",
+	"              ▄              ",
+	"              ▄▀             ",
+	"               ▀▄            ",
+	"                 ▄           ",
+	"                 ▀█          ",
+	"                 ▀▄          ",
+	"                   ▄         ",
+	"             ▄ ▄▄ █          ",
+	"             █▀▄  █ ▀█▄█     ",
+	"             █  ▀▀██▄ ██     ",
+	"                  █ ████     ",
+	"             ▀    █ █▄██     ",
+	"             █    █ █▄▀█     ",
+	"             █▀▄  ▀▄▀▀▄█     ",
+	"             █▀▄  ▀▄████     ",
+	"          █  █▀▄▀  ▄▀███     ",
+	"        ▄█   ██▄▀▄  ▀███     ",
+	"        ██▄  ████▄▀  ███     ",
+	"        ▀██▀ █████▀▄ ███     ",
+	"      ▄▄▄▄▄█ ▄▄▄▄▀█  ███     ",
+	"     █ ▀▀█▄▄▄▄▄▀██   ███     ",
+	"    ▄█     ▀▄█████▄▄ ████▄   ",
+	"▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀" }
+
+local aucomd_group = vim.api.nvim_create_augroup("dotfiles", {
+	clear = true
+})
+
+local function longest_length(strings)
+	local max_len = 0
+	for _, s in ipairs(strings) do
+		max_len = math.max(max_len, #s)
+	end
+	return max_len
+end
+
+---@param arr_text string[]
+local center_art_vert = function(win, arr_text)
+	local height = vim.api.nvim_win_get_config(win).height
+	for _ = 1, (height - #arr_text) / 2 do
+		table.insert(arr_text, 1, "")
+	end
+	for _ = #arr_text, height do
+		table.insert(arr_text, "")
+	end
+end
+
+local render_art_text = function(win, art_arr, text_arr)
+	center_art_vert(win, art_arr)
+	center_art_vert(win, text_arr)
+	local width = vim.api.nvim_win_get_width(win)
+	local cmd_width = longest_length(text_arr)
+	return vim.fn.map(art_arr, function(k, v)
+		local art_width = vim.fn.strdisplaywidth(v)
+		local remaining = width - art_width
+		local cmd = text_arr[k + 1] or ""
+		if remaining < cmd_width then remaining = cmd_width end
+		local left_padding = math.floor((remaining - cmd_width) / 2)
+		return v .. string.rep(" ", left_padding) .. cmd
+	end)
+end
+
+local colorscheme = {
+	"#33DF4E",
+	"#F92A82",
+	"#007CBE",
+	"#FF8552",
+	-- "#ffffff",
+	"#FFD639",
+}
+
+local todo_path = vim.fs.normalize("~/todo_nvim")
+
+local all_tags = {}
+local tag_to_color = {}
+
+local hash_str = function(str)
+	local h = 0
+	for c in str:gmatch(".") do
+		h = (h * 31) + string.byte(c) % 2 ^ 31
+	end
+	return h
+end
+
+local get_tag_color = function(tag)
+	if not tag_to_color[tag] then
+		local color = colorscheme[hash_str(tag) % #colorscheme + 1]
+		local hl_name = "tagColor_" .. tag
+		vim.api.nvim_set_hl(0, hl_name, { bg = color, fg = "#000000", bold = true })
+		tag_to_color[tag] = hl_name
+	end
+	return tag_to_color[tag]
+end
+
+vim.api.nvim_set_hl(0, "TodoCodeSnippet", { ctermfg = 14, fg = 11448017, italic = true })
+
+local status_map = {
+	["x"] = { name = "done", icon = "●", priority = 3 },
+	["-"] = { name = "in_progress", icon = "◎", priority = 1 },
+	[" "] = { name = "to_do", icon = "○", priority = 2 },
+}
+
+local states = {
+	["text_snippet"] = { trailing_spaces = 0 },
+	["code_snippet"] = { char = "`", highlight = { ctermfg = 14, fg = 11448017, italic = true } }
+}
+
+local end_string = function(sm)
+	local str = ""
+	_, sm.i, str = string.find(sm.input, "([a-zA-Z0-9- ]*)", sm.i)
+	if str then
+		if sm.output.task then
+			table.insert(sm.output.task, { "text", str})
+		else
+			sm.output["task"] = { "text", str }
+		end
+	end
+	sm.i = sm.i + 1
+end
+
+
+
+local next_char = function(sm)
+	sm.i = string.find(sm.input, "%S+", sm.i + 1)
+end
+
+local close_sym_brackets = function(sm)
+	local closing_bracket_byte = 0
+	if sm.current > 41 then
+		closing_bracket_byte = sm.current + 2
+	else
+		closing_bracket_byte = sm.current + 1
+	end
+	-- vim.print(".-" .. string.char(closing_bracket_byte))
+	_, sm.i = string.find(sm.input, string.char(closing_bracket_byte), sm.i)
+	sm.i = sm.i + 1
+end
+
+local get_tag = function(sm)
+	local tag = nil
+	_, sm.i, tag = sm.input:find("%[([a-zA-Z0-9_%-]-)%]", sm.i)
+	if not tag then
+		error("dev error [tag]")
+	end
+	sm.i = sm.i + 1
+	if sm.output.tags then
+		table.insert(sm.output.tags, tag)
+	else
+		sm.output["tags"] = { tag }
+	end
+	-- vim.print("tag : " .. tag)
+end
+
+local get_status = function(sm)
+	local status = {
+		[string.byte("x")] = "done",
+		[string.byte("-")] = "in_progress",
+		[string.byte(" ")] = "to_do"
+	}
+	local char = nil
+	_, sm.i, char = sm.input:find("%[([x%- ])%]", sm.i)
+	if not char then
+		error('[source "' .. sm.path .. '"] ' .. sm.line .. ": Error with the status syntax (expected [x], [-], or [ ])")
+	end
+	sm.i = sm.i + 1
+	sm.byte = string.byte(char)
+	sm.output["status"] = status[sm.byte]
+end
+
+local new_line = function(sm)
+	sm.line = sm.line + 1
+	sm.i = sm.i + 1
+end
+
+
+-- local setup_transitions = function()
+-- 	local transitions = {}
+-- 	for k, v in pairs(states) do
+-- 		table.insert()
+-- 	end
+-- end
+--
+--
+local dev_error = function()
+	error("this is a dev error")
+end
+
+local updated_transitions = {
+	["start_of_line"] = {
+		[string.byte("\n")] = { new_line, "start_of_line" },
+		[string.byte("[")] = { get_status, "status" },
+		[0] = { error, "error" }
+	},
+	["status"] = {
+		[string.byte("[")] = { get_tag, "tags" },
+		[0] = { dev_error, "text" }
+	},
+	["text"] = {
+		[string.byte("`")] = { end_string, "code_snippet" },
+		[string.byte("_")] = { end_string, "bold_snippet" },
+		[0] = { end_string, "text" }
+	},
+	["code_snippet"] = {
+		[string.byte("`")] = { next_char, "text" },
+	},
+	["bold_snippet"] = {
+		[string.byte("_")] = { next_char, "text" },
+	},
+	["tags"] = {
+		[string.byte("[")] = { get_tag, "tags" },
+		[0] = { end_string, "text" }
+	}
+
+}
+
+local transitions = {
+	["text"] = { hl = "" },
+	["code_snippet"] = { state = "code_snippet", hl = "TodoCodeSnippet", trailing_spaces = 2 },
+	[0] = { state = "text" },
+	[string.byte("`")] = { state = "code_snippet", hl = "TodoCodeSnippet", trailing_spaces = 2 },
+	[string.byte("_")] = { state = "bold_snippet", hl = "PmenuMatch", trailing_spaces = 2 },
+}
+
+local transition_fct = function(current_state, input_byte)
+	local next_state = transitions[input_byte].state
+	next_state = current_state ~= next_state and next_state or "text"
+	return next_state
+end
+
+-- local test = "ab 12 ' lol"
+-- vim.print(test:find("[a-zA-Z ]*"))
+
+local parse_task = function(line, tag_list)
+	--Finite State Machine Parsing
+	local sm = {}
+	line = line:match("^%s*(.-)%s*$")
+	local raw_status, rest = line:match("^%[(.)%]%s*(.*)$")
+	if not raw_status then return end
+	local tags = {}
+	local text = rest:gsub("%b[]", function(tag)
+		table.insert(tags, tag:sub(2, -2))
+		tag_list[tag:sub(2, -2)] = true
+		return ""
+	end
+	)
+	local last_pos = 1
+	text = text:match("^%s*(.-)%s*$")
+	local test_tokens = {}
+	local tokens = {}
+	local code_s = ""
+	sm.input = text
+	sm.length = #sm.input
+	sm.i = 1
+	sm.current_transition = nil
+	sm.state = "text"
+	local state = "text"
+	-- while sm.i < sm.length do
+	-- 	sm.current = string.byte(sm.input, sm.i)
+	-- 	if not updated_transitions[sm.state][sm.current] then
+	-- 		sm.current_transition = updated_transitions[sm.state][0]
+	-- 		-- code_s = code_s .. text:sub(sm.i, sm.i)
+	-- 	else
+	-- 		sm.current_transition = updated_transitions[sm.state][sm.current]
+	-- 		-- if code_s ~= "" then table.insert(test_tokens, { sm.state, code_s }) end
+	-- 		-- sm.state = transition_fct(sm.state, string.byte(sm.string, sm.i))
+	-- 		-- code_s = ""
+	-- 	end
+	-- 	vim.print(sm.i)
+	-- 	sm.state = sm.current_transition[2]
+	-- 	sm.current_transition[1](sm)
+	-- 	-- sm.i = sm.i + 1
+	-- end
+	-- vim.print(sm.input)
+	-- if code_s ~= "" then vim.print({ state, code_s }) end
+	if code_s ~= "" then table.insert(test_tokens, { state, code_s }) end
+	for pre, code, post in text:gmatch("(.-)`(.-)`()") do
+		if pre ~= "" then
+			table.insert(tokens, { "text", pre })
+		end
+		table.insert(tokens, { "code_snippet", code })
+		last_pos = post
+	end
+	if last_pos <= #text then
+		table.insert(tokens, { "text", text:sub(last_pos) })
+	end
+	vim.print(test_tokens)
+
+
+	local status = status_map[raw_status]
+	return { status = status, tags = tags, tokens = tokens }
+end
+
+
+---@param filename string Path of the tdmd file to parse
+local parse_tdmd = function(filename, options)
+	local sm = {}
+	if options then
+		if options.text_input then
+			sm.input = filename
+		end
+	else
+		sm.filename = vim.fs.normalize(filename)
+
+		sm.file = io.open(sm.filename)
+		---@type string
+		sm.input = sm.file:read("a")
+	end
+
+	sm.i = 1
+	sm.output = {}
+	sm.line = 1
+	sm.state = "start_of_line"
+	sm.length = #sm.input
+	while sm.i <= sm.length do
+		sm.byte = sm.input:byte(sm.i)
+		sm.transition = updated_transitions[sm.state][sm.byte] or updated_transitions[sm.state][0]
+		pcall(sm.transition[1], sm)
+		sm.state = sm.transition[2]
+		-- sm.i = sm.i + 1
+		-- vim.print(sm.i)
+	end
+	vim.print(sm)
+end
+
+parse_tdmd("[x][tag1][tag2] this is a test", { text_input = true })
+
+local load_tasks = function(path)
+	local tasks = {}
+	for task in io.lines(path) do
+		table.insert(tasks, task)
+	end
+	return tasks
+end
+
+local ns = vim.api.nvim_create_namespace("todos_dsa")
+
+
+---@return vim.api.keyset.set_extmark
+local overing_layout = function(buf, todo, i, ignore)
+	if ignore then return {} end
+	local trailing_spaces = 1
+	local virt_text = {}
+	table.insert(virt_text, {
+		todo.status.icon .. " ", "TodoState"
+	})
+	for _, tag in ipairs(todo.tags) do
+		table.insert(virt_text, { "[" .. tag .. "]", get_tag_color(tag) })
+	end
+	table.insert(virt_text, { " " })
+	for _, token in pairs(todo.tokens) do
+		local k, v = token[1], token[2]
+		table.insert(virt_text, { v, transitions[k].hl })
+		trailing_spaces = trailing_spaces + (transitions[k].trailing_spaces or 0)
+	end
+
+	table.insert(virt_text, { string.rep(" ", trailing_spaces) })
+	return {
+		virt_text = virt_text,
+		hl_mode = "combine",
+		virt_text_pos = "overlay"
+	}
+end
+
+---@return vim.api.keyset.set_extmark
+local startup_layout = function(buf, todo, i, ignore)
+	local virt_text = {}
+	local tag_l = 0
+	for _, tag in pairs(todo.tags) do
+		table.insert(virt_text, { "[" .. tag .. "]", get_tag_color(tag) })
+		tag_l = tag_l + #tag + 2
+	end
+	table.insert(virt_text, { " " })
+	table.insert(virt_text, { todo.status.icon .. " ", "TodoState" })
+	table.insert(virt_text, { todo.text .. " ", "TodoTask" })
+	return {
+		virt_text = virt_text,
+		hl_mode = "combine",
+		virt_text_pos = "overlay",
+		virt_text_win_col = 25 + vim.b[buf].largest_tag - tag_l
+	}
+end
+-- ┣ VR
+-- ┗ UR
+
+
+---@param buf number
+---@param sorting? boolean
+---@param layout_fn function
+local render_todos = function(buf, lines, filtering_status, sorting, skip_lines, layout_fn)
+	vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+	-- local width = vim.api.nvim_win_get_width(win)
+	local height = vim.api.nvim_buf_line_count(buf)
+	vim.b[buf].largest_tag = 0
+	local filtered_todos = {}
+
+
+	for _, u_todo in pairs(lines) do
+		local todo = parse_task(u_todo, all_tags)
+		if filtering_status[todo.status.name] then
+			table.insert(filtered_todos, todo)
+			vim.b[buf].largest_tag = math.max(vim.b[buf].largest_tag, #table.concat(todo.tags) + 2 * #todo.tags)
+		end
+		-- ::continue::
+	end
+
+	if sorting or sorting == nil then
+		table.sort(filtered_todos, function(a, b)
+			return a.status.priority < b.status.priority
+		end
+		)
+	end
+
+	-- local num_todo = #filtered_todos
+	local start_line = math.max(1, math.floor(height - #filtered_todos - 3))
+
+	for i, l_todo in ipairs(filtered_todos) do
+		local ignore_line = not (skip_lines == nil or i < skip_lines[1] or i > skip_lines[2])
+		local extmark_opts = vim.fn.call(layout_fn, { buf, l_todo, i, ignore_line })
+		vim.api.nvim_buf_set_extmark(buf, ns, start_line - 1, 0, extmark_opts)
+		-- end
+		start_line = start_line + 1
+	end
+end
+-- end
+
+-- to print the dashboard
+vim.api.nvim_create_autocmd("VimEnter", {
+	group = aucomd_group,
+	callback = function()
+		if vim.fn.argc(-1) > 0 then return end
+		local local_width = vim.o.columns
+		local local_height = vim.o.lines
+		local default_config = {
+			relative = "editor",
+			width = math.floor(.52 * local_width),
+			height = math.floor(.52 * local_height),
+			col = (local_width - math.floor(.52 * local_width)) / 2,
+			row = (local_height - math.floor(.52 * local_height)) / 2,
+			border = "none",
+			style = "minimal",
+		}
+		local buf = vim.api.nvim_create_buf(false, true)
+		local win = vim.api.nvim_open_win(buf, false, default_config)
+		local todo_list = load_tasks(todo_path)
+		local text = render_art_text(win, art, { "Welcome Tayheau" })
+		vim.api.nvim_buf_set_lines(buf, 0, -1, false, text)
+		local filtering_tags = {
+			["done"] = false,
+			["in_progress"] = true,
+			["to_do"] = true
+		}
+		-- vim.b[buf].largest_tag = compute_max_tag_length(todo_list)
+		render_todos(buf, todo_list, filtering_tags, true, nil, startup_layout)
+		local close_events = {
+			"InsertCharPre", "CursorMoved"
+		}
+		vim.api.nvim_create_autocmd(close_events, {
+			group = aucomd_group,
+			callback = function()
+				vim.schedule(function()
+					if vim.api.nvim_win_is_valid(win) then
+						vim.api.nvim_win_close(win, true)
+					end
+				end)
+			end
+		})
+	end
+})
+
+local filtering_tags = {
+	["done"] = true,
+	["in_progress"] = true,
+	["to_do"] = true
+}
+
+-- setup all the autocmds allocated to a buffer
+local setup_todo_buf_render = function(buf, layout_fn)
+	local refresh = function(skip_line)
+		local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+		render_todos(buf, lines, filtering_tags, false, skip_line, layout_fn)
+	end
+	refresh()
+
+	---@param event vim.api.keyset.events
+	local autocmd = function(event, callback)
+		vim.api.nvim_create_autocmd(event, {
+			group = aucomd_group,
+			buffer = buf,
+			callback = callback,
+			-- cant use both pattern and buffer so no "*:[vV\x16]*" :(
+		})
+	end
+
+	autocmd("CursorMoved", function()
+		local pos = { vim.fn.line("."), vim.fn.line("v") }
+		table.sort(pos)
+		refresh(pos)
+	end
+	)
+
+	-- autocmd("ModeChanged", function()
+	-- 	local pos = { vim.fn.line("."), vim.fn.line("v") }
+	-- 	table.sort(pos)
+	-- 	refresh(pos)
+	-- end
+	-- )
+
+	autocmd("WinLeave", function() refresh() end)
+end
+
+local test = "a b c"
+-- vim.print("yo")
+-- vim.print(test:gmatch("(%S+)"))
+
+-- setup_todo_buf_render(7, overing_layout)
