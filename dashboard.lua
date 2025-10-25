@@ -110,12 +110,15 @@ local states = {
 
 local end_string = function(sm)
 	local str = ""
-	_, sm.i, str = string.find(sm.input, "([a-zA-Z0-9- ]*)", sm.i)
+	_, sm.i, str = string.find(sm.input, "([^" .. sm.task_snippets_chars .. "]*)", sm.i)
+	-- vim.print(sm.i)
+	-- sm.i = sm.i + 1
+	-- vim.print(sm.i)
 	if str then
-		if sm.output.task then
-			table.insert(sm.output.task, { "text", str})
+		if sm.result.tokens then
+			table.insert(sm.result.tokens, { sm.state, str })
 		else
-			sm.output["task"] = { "text", str }
+			sm.result["tokens"] = { { sm.state, str } }
 		end
 	end
 	sm.i = sm.i + 1
@@ -123,19 +126,22 @@ end
 
 
 
-local next_char = function(sm)
-	sm.i = string.find(sm.input, "%S+", sm.i + 1)
+local next_non_empty_char = function(sm)
+	sm.i = string.find(sm.input, "[^ ]", sm.i + 1)
+	-- sm.i = sm.i + 1
 end
 
-local close_sym_brackets = function(sm)
-	local closing_bracket_byte = 0
-	if sm.current > 41 then
-		closing_bracket_byte = sm.current + 2
+local close_inline_snippet = function(sm)
+	local char = vim.fn.nr2char(sm.byte)
+	local str = ""
+	_, sm.i, str = sm.input:find(char .. "([^%c].-)" .. char, sm.i)
+	-- vim.print(str)
+	if str == nil then error("Error with closing snippets") end
+	if sm.result.tokens then
+		table.insert(sm.result.tokens, { sm.state, str })
 	else
-		closing_bracket_byte = sm.current + 1
+		sm.result["tokens"] = { { sm.state, str } }
 	end
-	-- vim.print(".-" .. string.char(closing_bracket_byte))
-	_, sm.i = string.find(sm.input, string.char(closing_bracket_byte), sm.i)
 	sm.i = sm.i + 1
 end
 
@@ -146,12 +152,11 @@ local get_tag = function(sm)
 		error("dev error [tag]")
 	end
 	sm.i = sm.i + 1
-	if sm.output.tags then
-		table.insert(sm.output.tags, tag)
+	if sm.result.tags then
+		table.insert(sm.result.tags, tag)
 	else
-		sm.output["tags"] = { tag }
+		sm.result["tags"] = { tag }
 	end
-	-- vim.print("tag : " .. tag)
 end
 
 local get_status = function(sm)
@@ -167,12 +172,14 @@ local get_status = function(sm)
 	end
 	sm.i = sm.i + 1
 	sm.byte = string.byte(char)
-	sm.output["status"] = status[sm.byte]
+	sm.result["status"] = status[sm.byte]
 end
 
 local new_line = function(sm)
 	sm.line = sm.line + 1
 	sm.i = sm.i + 1
+	if sm.result ~= {} then table.insert(sm.output, sm.result) end
+	sm.result = {}
 end
 
 
@@ -187,30 +194,49 @@ end
 local dev_error = function()
 	error("this is a dev error")
 end
+local BYTE = {
+	NEW_LINE = string.byte("\n"),
+	LEFT_BRACKET = string.byte("["),
+	SPACE = string.byte(" "),
+	BACKTICK = string.byte("`"),
+	ASTERIX = string.byte("*"),
+	UNDERSCORE = string.byte("_"),
+}
+
 
 local updated_transitions = {
 	["start_of_line"] = {
-		[string.byte("\n")] = { new_line, "start_of_line" },
-		[string.byte("[")] = { get_status, "status" },
+		[BYTE.NEW_LINE] = { new_line, "start_of_line" },
+		[BYTE.LEFT_BRACKET] = { get_status, "status" },
 		[0] = { error, "error" }
 	},
 	["status"] = {
-		[string.byte("[")] = { get_tag, "tags" },
+		[BYTE.LEFT_BRACKET] = { get_tag, "tags" },
+		[BYTE.SPACE] = { next_non_empty_char, "text" },
 		[0] = { dev_error, "text" }
 	},
 	["text"] = {
-		[string.byte("`")] = { end_string, "code_snippet" },
-		[string.byte("_")] = { end_string, "bold_snippet" },
+		[BYTE.NEW_LINE] = { new_line, "start_of_line" },
+		[BYTE.BACKTICK] = { close_inline_snippet, "code_snippet" },
+		[BYTE.ASTERIX] = { close_inline_snippet, "italic_snippet" },
 		[0] = { end_string, "text" }
 	},
 	["code_snippet"] = {
-		[string.byte("`")] = { next_char, "text" },
+		[BYTE.SPACE] = { next_non_empty_char, "text" },
+		[BYTE.NEW_LINE] = { new_line, "start_of_line" },
+		[0] = { end_string, "text" }
+	},
+	["italic_snippet"] = {
+		[BYTE.SPACE] = { next_non_empty_char, "text" },
+		[BYTE.NEW_LINE] = { new_line, "start_of_line" },
 	},
 	["bold_snippet"] = {
-		[string.byte("_")] = { next_char, "text" },
+		[BYTE.UNDERSCORE] = { next_non_empty_char, "text" },
+		[BYTE.NEW_LINE] = { new_line, "start_of_line" },
 	},
 	["tags"] = {
-		[string.byte("[")] = { get_tag, "tags" },
+		[BYTE.LEFT_BRACKET] = { get_tag, "tags" },
+		[BYTE.SPACE] = { next_non_empty_char, "text" },
 		[0] = { end_string, "text" }
 	}
 
@@ -224,14 +250,7 @@ local transitions = {
 	[string.byte("_")] = { state = "bold_snippet", hl = "PmenuMatch", trailing_spaces = 2 },
 }
 
-local transition_fct = function(current_state, input_byte)
-	local next_state = transitions[input_byte].state
-	next_state = current_state ~= next_state and next_state or "text"
-	return next_state
-end
 
--- local test = "ab 12 ' lol"
--- vim.print(test:find("[a-zA-Z ]*"))
 
 local parse_task = function(line, tag_list)
 	--Finite State Machine Parsing
@@ -310,22 +329,34 @@ local parse_tdmd = function(filename, options)
 	end
 
 	sm.i = 1
+	sm.result = {}
 	sm.output = {}
+	sm.cache = {}
+	sm.task_snippets_chars = ""
 	sm.line = 1
 	sm.state = "start_of_line"
 	sm.length = #sm.input
+
+	for k, _ in pairs(updated_transitions["text"]) do
+		if k ~= 0 then
+			table.insert(sm.cache, vim.fn.nr2char(k))
+		end
+	end
+	sm.task_snippets_chars = table.concat(sm.cache)
+	sm.cache = {}
+
+
 	while sm.i <= sm.length do
 		sm.byte = sm.input:byte(sm.i)
 		sm.transition = updated_transitions[sm.state][sm.byte] or updated_transitions[sm.state][0]
-		pcall(sm.transition[1], sm)
 		sm.state = sm.transition[2]
-		-- sm.i = sm.i + 1
-		-- vim.print(sm.i)
+		sm.transition[1](sm)
 	end
-	vim.print(sm)
+	-- vim.print(sm.output)
+	table.insert(sm.output, sm.result)
+	sm.result = {}
+	return sm.output
 end
-
-parse_tdmd("[x][tag1][tag2] this is a test", { text_input = true })
 
 local load_tasks = function(path)
 	local tasks = {}
@@ -340,11 +371,22 @@ local ns = vim.api.nvim_create_namespace("todos_dsa")
 
 ---@return vim.api.keyset.set_extmark
 local overing_layout = function(buf, todo, i, ignore)
+	local mapping_snippet = {
+		["text"] = {hl = ""},
+		["code_snippet"] = { hl = "TodoCodeSnippet", trailing_spaces = 2},
+		["italic_snippet"] = { hl = "", trailing_spaces = 2}
+	}
+	local mapping_status = {
+		["done"] = "●",
+		["in_progress"] = "◎",
+		["to_do"] = "○"
+	}
+
 	if ignore then return {} end
 	local trailing_spaces = 1
 	local virt_text = {}
 	table.insert(virt_text, {
-		todo.status.icon .. " ", "TodoState"
+		mapping_status[todo.status] .. " ", "TodoState"
 	})
 	for _, tag in ipairs(todo.tags) do
 		table.insert(virt_text, { "[" .. tag .. "]", get_tag_color(tag) })
@@ -352,8 +394,8 @@ local overing_layout = function(buf, todo, i, ignore)
 	table.insert(virt_text, { " " })
 	for _, token in pairs(todo.tokens) do
 		local k, v = token[1], token[2]
-		table.insert(virt_text, { v, transitions[k].hl })
-		trailing_spaces = trailing_spaces + (transitions[k].trailing_spaces or 0)
+		table.insert(virt_text, { v .. " ", mapping_snippet[k].hl })
+		trailing_spaces = trailing_spaces + (mapping_snippet[k].trailing_spaces or 0)
 	end
 
 	table.insert(virt_text, { string.rep(" ", trailing_spaces) })
@@ -390,33 +432,37 @@ end
 ---@param sorting? boolean
 ---@param layout_fn function
 local render_todos = function(buf, lines, filtering_status, sorting, skip_lines, layout_fn)
-	vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-	-- local width = vim.api.nvim_win_get_width(win)
-	local height = vim.api.nvim_buf_line_count(buf)
-	vim.b[buf].largest_tag = 0
-	local filtered_todos = {}
+	local render = {}
+
+	render.buf_id = buf
+	render.height = vim.api.nvim_buf_line_count(render.buf_id)
+	render.lines = vim.deepcopy(lines)
+	render.filtered_todos = {}
+	render.filtering_status = filtering_status
+
+	vim.api.nvim_buf_clear_namespace(render.buf_id, ns, 0, -1)
+	vim.b[render.buf_id].largest_tag = 0
 
 
-	for _, u_todo in pairs(lines) do
-		local todo = parse_task(u_todo, all_tags)
-		if filtering_status[todo.status.name] then
-			table.insert(filtered_todos, todo)
-			vim.b[buf].largest_tag = math.max(vim.b[buf].largest_tag, #table.concat(todo.tags) + 2 * #todo.tags)
+	for _, l in pairs(render.lines) do
+		if filtering_status[l.status] then
+			table.insert(render.filtered_todos, l)
+			-- vim.b[buf].largest_tag = math.max(vim.b[buf].largest_tag, #table.concat(todo.tags) + 2 * #todo.tags)
 		end
 		-- ::continue::
 	end
 
-	if sorting or sorting == nil then
-		table.sort(filtered_todos, function(a, b)
-			return a.status.priority < b.status.priority
-		end
-		)
-	end
+	-- if sorting or sorting == nil then
+	-- 	table.sort(filtered_todos, function(a, b)
+	-- 		return a.status.priority < b.status.priority
+	-- 	end
+	-- 	)
+	-- end
+	--
+	-- local num_todo = #render.filtered_todos
+	local start_line = math.max(1, math.floor(render.height - #render.filtered_todos - 3))
 
-	-- local num_todo = #filtered_todos
-	local start_line = math.max(1, math.floor(height - #filtered_todos - 3))
-
-	for i, l_todo in ipairs(filtered_todos) do
+	for i, l_todo in ipairs(render.filtered_todos) do
 		local ignore_line = not (skip_lines == nil or i < skip_lines[1] or i > skip_lines[2])
 		local extmark_opts = vim.fn.call(layout_fn, { buf, l_todo, i, ignore_line })
 		vim.api.nvim_buf_set_extmark(buf, ns, start_line - 1, 0, extmark_opts)
@@ -476,13 +522,39 @@ local filtering_tags = {
 	["to_do"] = true
 }
 
--- setup all the autocmds allocated to a buffer
-local setup_todo_buf_render = function(buf, layout_fn)
-	local refresh = function(skip_line)
-		local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-		render_todos(buf, lines, filtering_tags, false, skip_line, layout_fn)
+---@alias StringSet table< string, boolean >
+
+---@class RenderOptions
+---@field inline_text boolean Wether to take the buffer's content as input or not. If True then the option `filename` must be precised. Default on True.
+---@field filename? string Path of the file or a string to render. `inline_text` must be True.
+---@field navigable boolean Wether the buffer is navigable or not. Default on Fals
+---@field filter? StringSet Tag filter table. If not precised every tag will be displayed, otherwise, only enabled tags will be.
+
+
+-- setup all autocmds and renderer allocated to a buffer
+---@param options RenderOptions
+---@param win_config vim.api.keyset.win_config
+local tdmd_buff_render = function(buf, win_config, layout_fn, options)
+	local render = {}
+
+	render.lines = ""
+	render.buf_id = buf
+	render.last_tick = 0
+	render.height = vim.api.nvim_buf_line_count(render.buf_id)
+
+	local update_lines = function()
+		render.lines = parse_tdmd(
+			table.concat(vim.api.nvim_buf_get_lines(render.buf_id, 0, -1, false), "\n"),
+			{ text_input = true}
+		)
 	end
-	refresh()
+
+	local update_render = function(skip_line)
+		render_todos(buf, render.lines, filtering_tags, false, skip_line, layout_fn)
+	end
+
+	update_lines()
+	update_render()
 
 	---@param event vim.api.keyset.events
 	local autocmd = function(event, callback)
@@ -495,24 +567,25 @@ local setup_todo_buf_render = function(buf, layout_fn)
 	end
 
 	autocmd("CursorMoved", function()
-		local pos = { vim.fn.line("."), vim.fn.line("v") }
-		table.sort(pos)
-		refresh(pos)
+		render.pos = { vim.fn.line("."), vim.fn.line("v") }
+		table.sort(render.pos)
+		update_render(render.pos)
 	end
 	)
 
-	-- autocmd("ModeChanged", function()
-	-- 	local pos = { vim.fn.line("."), vim.fn.line("v") }
-	-- 	table.sort(pos)
-	-- 	refresh(pos)
-	-- end
-	-- )
+	autocmd({ "TextChanged", "InsertLeave" }, function()
+		if render.last_tick ~= vim.b[render.buf_id].changedtick then
+		update_lines()
+		render.pos = { vim.fn.line("."), vim.fn.line("v") }
+		table.sort(render.pos)
+		update_render(render.pos)
+		render.last_tick = vim.b[render.buf_id].changedtick
+	end
+	end
+	)
 
-	autocmd("WinLeave", function() refresh() end)
+	autocmd("WinLeave", function() update_render() end)
 end
 
-local test = "a b c"
--- vim.print("yo")
--- vim.print(test:gmatch("(%S+)"))
 
--- setup_todo_buf_render(7, overing_layout)
+tdmd_buff_render(4, overing_layout)
