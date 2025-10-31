@@ -111,9 +111,7 @@ local states = {
 local end_string = function(sm)
 	local str = ""
 	_, sm.i, str = string.find(sm.input, "([^" .. sm.task_snippets_chars .. "]*)", sm.i)
-	-- vim.print(sm.i)
-	-- sm.i = sm.i + 1
-	-- vim.print(sm.i)
+	str = str:gsub("%s*$", "")
 	if str then
 		if sm.result.tokens then
 			table.insert(sm.result.tokens, { sm.state, str })
@@ -316,17 +314,21 @@ end
 ---@param filename string Path of the tdmd file to parse
 local parse_tdmd = function(filename, options)
 	local sm = {}
-	if options then
-		if options.text_input then
-			sm.input = filename
-		end
-	else
-		sm.filename = vim.fs.normalize(filename)
 
+	if not options.text_input then
+		sm.filename = vim.fs.normalize(filename)
 		sm.file = io.open(sm.filename)
 		---@type string
 		sm.input = sm.file:read("a")
+	else
+		sm.input = filename
 	end
+
+	-- if options then
+	-- 	if options.text_input then
+	-- 		sm.input = filename
+	-- 	end
+	-- end
 
 	sm.i = 1
 	sm.result = {}
@@ -352,8 +354,6 @@ local parse_tdmd = function(filename, options)
 		sm.state = sm.transition[2]
 		sm.transition[1](sm)
 	end
-	-- vim.print(sm.output)
-	table.insert(sm.output, sm.result)
 	sm.result = {}
 	return sm.output
 end
@@ -366,15 +366,14 @@ local load_tasks = function(path)
 	return tasks
 end
 
-local ns = vim.api.nvim_create_namespace("todos_dsa")
 
 
 ---@return vim.api.keyset.set_extmark
 local overing_layout = function(buf, todo, i, ignore)
 	local mapping_snippet = {
-		["text"] = {hl = ""},
-		["code_snippet"] = { hl = "TodoCodeSnippet", trailing_spaces = 2},
-		["italic_snippet"] = { hl = "", trailing_spaces = 2}
+		["text"] = { hl = "" },
+		["code_snippet"] = { hl = "TodoCodeSnippet", trailing_spaces = 1 },
+		["italic_snippet"] = { hl = "", trailing_spaces = 2 }
 	}
 	local mapping_status = {
 		["done"] = "●",
@@ -431,7 +430,7 @@ end
 ---@param buf number
 ---@param sorting? boolean
 ---@param layout_fn function
-local render_todos = function(buf, lines, filtering_status, sorting, skip_lines, layout_fn)
+local render_todos = function(buf, lines, filtering_status, sorting, skip_lines, layout_fn, ns)
 	local render = {}
 
 	render.buf_id = buf
@@ -525,42 +524,75 @@ local filtering_tags = {
 ---@alias StringSet table< string, boolean >
 
 ---@class RenderOptions
----@field inline_text boolean Wether to take the buffer's content as input or not. If True then the option `filename` must be precised. Default on True.
----@field filename? string Path of the file or a string to render. `inline_text` must be True.
----@field navigable boolean Wether the buffer is navigable or not. Default on Fals
+---@field text_input? string Default on False. Wether the input string has to be rendered or not.
+---@field navigable? boolean Wether the buffer is navigable or not. Default on Fals
 ---@field filter? StringSet Tag filter table. If not precised every tag will be displayed, otherwise, only enabled tags will be.
+---@field ordering? table<string>
+---@field layout_fn function
 
 
 -- setup all autocmds and renderer allocated to a buffer
+---@param filename string A valid `buffer_id`, filename or string to render (needs `inline_text` to be set to `true`). A buffer will be created with default `win_config` in the two last cases.
 ---@param options RenderOptions
----@param win_config vim.api.keyset.win_config
-local tdmd_buff_render = function(buf, win_config, layout_fn, options)
+---@param win_config? vim.api.keyset.win_config
+local tdmd_render = function(filename, win_config, options)
 	local render = {}
 
-	render.lines = ""
-	render.buf_id = buf
-	render.last_tick = 0
+	if options.text_input then
+		render.buf_id = vim.api.nvim_create_buf(false, false)
+	else
+		render.filename = vim.fs.normalize(filename)
+		render.buf_id = vim.fn.bufadd(render.filename)
+		vim.fn.bufload(render.buf_id)
+	end
+
 	render.height = vim.api.nvim_buf_line_count(render.buf_id)
+
+	local base_win_config = {
+		height = render.height,
+		split = "above",
+		win = 0,
+	}
+
+	render.win_id = vim.api.nvim_open_win(render.buf_id, true, win_config or base_win_config)
+
+	render.ns = vim.api.nvim_create_namespace("tdmd_render" .. render.buf_id)
+	render.filter = options.filter or {}
+	render.layout_fn = options.layout_fn
+	render.lines = parse_tdmd(render.filename, { text_input = options.text_input })
+	render.last_tick = 0
+
+
+	local process_rendering = function()
+		vim.api.nvim_buf_clear_namespace(render.buf_id, render.ns, 0, -1)
+		for i, l in pairs(render.lines) do
+			local extmark_opts = vim.fn.call(render.layout_fn, { render.buf_id, l, i, nil })
+			-- vim.print(extmark_opts)
+			vim.api.nvim_buf_set_extmark(render.buf_id, render.ns, i - 1, 0, extmark_opts)
+		end
+	end
 
 	local update_lines = function()
 		render.lines = parse_tdmd(
 			table.concat(vim.api.nvim_buf_get_lines(render.buf_id, 0, -1, false), "\n"),
-			{ text_input = true}
+			{ text_input = true }
 		)
 	end
 
 	local update_render = function(skip_line)
-		render_todos(buf, render.lines, filtering_tags, false, skip_line, layout_fn)
+		render_todos(render.buf_id, render.lines, filtering_tags, false, skip_line, render.layout_fn, render.ns)
 	end
 
-	update_lines()
-	update_render()
+	-- update_lines()
+	-- render.lines = parse_tdmd(render.filename)
+	-- vim.print(parse_tdmd(render.filename))
+	process_rendering()
 
 	---@param event vim.api.keyset.events
 	local autocmd = function(event, callback)
 		vim.api.nvim_create_autocmd(event, {
 			group = aucomd_group,
-			buffer = buf,
+			buffer = render.buf_id,
 			callback = callback,
 			-- cant use both pattern and buffer so no "*:[vV\x16]*" :(
 		})
@@ -575,12 +607,12 @@ local tdmd_buff_render = function(buf, win_config, layout_fn, options)
 
 	autocmd({ "TextChanged", "InsertLeave" }, function()
 		if render.last_tick ~= vim.b[render.buf_id].changedtick then
-		update_lines()
-		render.pos = { vim.fn.line("."), vim.fn.line("v") }
-		table.sort(render.pos)
-		update_render(render.pos)
-		render.last_tick = vim.b[render.buf_id].changedtick
-	end
+			update_lines()
+			render.pos = { vim.fn.line("."), vim.fn.line("v") }
+			table.sort(render.pos)
+			update_render(render.pos)
+			render.last_tick = vim.b[render.buf_id].changedtick
+		end
 	end
 	)
 
@@ -588,4 +620,22 @@ local tdmd_buff_render = function(buf, win_config, layout_fn, options)
 end
 
 
-tdmd_buff_render(4, overing_layout)
+tdmd_render("~/todo_nvim", nil, { layout_fn = overing_layout })
+-- local dev_txt = {"first line", "second line", "a", "b", "c"}
+-- local dev_buf = vim.api.nvim_create_buf(false, false)
+-- vim.api.nvim_buf_set_lines(dev_buf, 0, -1, false, dev_txt)
+-- vim.api.nvim_open_win(dev_buf, true, {
+-- 	split = "above",
+-- 	win = 0,
+-- 	height = vim.api.nvim_buf_line_count(dev_buf)
+-- })
+
+-- vim.api.nvim_open
+-- ---@type vim.api.keyset.win_config
+-- local test = "test"
+-- if vim.fn.type(test) == 0 and vim.api.nvim_buf_is_valid(test) then
+-- 	vim.print("all good")
+-- 	else
+-- 		vim.print("ah ouai nan")
+-- 	end
+-- vim.print(vim.fn.type(test))
