@@ -133,7 +133,6 @@ local close_inline_snippet = function(sm)
 	local char = vim.fn.nr2char(sm.byte)
 	local str = ""
 	_, sm.i, str = sm.input:find(char .. "([^%c].-)" .. char, sm.i)
-	-- vim.print(str)
 	if str == nil then error("Error with closing snippets") end
 	if sm.result.tokens then
 		table.insert(sm.result.tokens, { sm.state, str })
@@ -181,17 +180,10 @@ local new_line = function(sm)
 end
 
 
--- local setup_transitions = function()
--- 	local transitions = {}
--- 	for k, v in pairs(states) do
--- 		table.insert()
--- 	end
--- end
---
---
 local dev_error = function()
 	error("this is a dev error")
 end
+
 local BYTE = {
 	NEW_LINE = string.byte("\n"),
 	LEFT_BRACKET = string.byte("["),
@@ -319,16 +311,10 @@ local parse_tdmd = function(filename, options)
 		sm.filename = vim.fs.normalize(filename)
 		sm.file = io.open(sm.filename)
 		---@type string
-		sm.input = sm.file:read("a")
+		sm.input = sm.file:read("*a")
 	else
 		sm.input = filename
 	end
-
-	-- if options then
-	-- 	if options.text_input then
-	-- 		sm.input = filename
-	-- 	end
-	-- end
 
 	sm.i = 1
 	sm.result = {}
@@ -354,6 +340,7 @@ local parse_tdmd = function(filename, options)
 		sm.state = sm.transition[2]
 		sm.transition[1](sm)
 	end
+	if next(sm.result) then table.insert(sm.output, sm.result) end
 	sm.result = {}
 	return sm.output
 end
@@ -554,38 +541,41 @@ local tdmd_render = function(filename, win_config, options)
 		win = 0,
 	}
 
+	win_config = vim.tbl_deep_extend('force', base_win_config, win_config or {})
+
 	render.win_id = vim.api.nvim_open_win(render.buf_id, true, win_config or base_win_config)
 
 	render.ns = vim.api.nvim_create_namespace("tdmd_render" .. render.buf_id)
 	render.filter = options.filter or {}
-	render.layout_fn = options.layout_fn
 	render.lines = parse_tdmd(render.filename, { text_input = options.text_input })
 	render.last_tick = 0
+	render.pos = {}
 
 
 	local process_rendering = function()
+		local extmark_opts = nil
+		local skippable = false
 		vim.api.nvim_buf_clear_namespace(render.buf_id, render.ns, 0, -1)
 		for i, l in pairs(render.lines) do
-			local extmark_opts = vim.fn.call(render.layout_fn, { render.buf_id, l, i, nil })
-			-- vim.print(extmark_opts)
-			vim.api.nvim_buf_set_extmark(render.buf_id, render.ns, i - 1, 0, extmark_opts)
+			skippable = (next(render.pos) ~= nil and i >= render.pos[1] and i <= render.pos[2])
+			if next(l) ~= nil and not skippable then
+				extmark_opts = vim.fn.call(options.layout_fn, { render.buf_id, l, i, nil })
+				vim.api.nvim_buf_set_extmark(render.buf_id, render.ns, i - 1, 0, extmark_opts)
+			end
 		end
 	end
 
 	local update_lines = function()
 		render.lines = parse_tdmd(
-			table.concat(vim.api.nvim_buf_get_lines(render.buf_id, 0, -1, false), "\n"),
+			table.concat(vim.api.nvim_buf_get_lines(render.buf_id, 0, -1, false), "\n") .. "\n",
 			{ text_input = true }
 		)
 	end
+	-- update_lines()
 
 	local update_render = function(skip_line)
-		render_todos(render.buf_id, render.lines, filtering_tags, false, skip_line, render.layout_fn, render.ns)
+		render_todos(render.buf_id, render.lines, filtering_tags, false, skip_line, options.layout_fn, render.ns)
 	end
-
-	-- update_lines()
-	-- render.lines = parse_tdmd(render.filename)
-	-- vim.print(parse_tdmd(render.filename))
 	process_rendering()
 
 	---@param event vim.api.keyset.events
@@ -594,48 +584,39 @@ local tdmd_render = function(filename, win_config, options)
 			group = aucomd_group,
 			buffer = render.buf_id,
 			callback = callback,
-			-- cant use both pattern and buffer so no "*:[vV\x16]*" :(
 		})
 	end
 
 	autocmd("CursorMoved", function()
 		render.pos = { vim.fn.line("."), vim.fn.line("v") }
 		table.sort(render.pos)
-		update_render(render.pos)
+		process_rendering()
 	end
 	)
+
+	autocmd("ModeChanged", function(args)
+		if args.match:match("^[vV\x16]:n") then
+			render.pos = { vim.fn.line("."), vim.fn.line("v") }
+			process_rendering()
+		end
+	end)
 
 	autocmd({ "TextChanged", "InsertLeave" }, function()
 		if render.last_tick ~= vim.b[render.buf_id].changedtick then
 			update_lines()
 			render.pos = { vim.fn.line("."), vim.fn.line("v") }
 			table.sort(render.pos)
-			update_render(render.pos)
+			process_rendering()
 			render.last_tick = vim.b[render.buf_id].changedtick
 		end
 	end
 	)
 
-	autocmd("WinLeave", function() update_render() end)
+	autocmd("WinLeave", function()
+		render.pos = {}
+		process_rendering()
+	end)
 end
 
 
 tdmd_render("~/todo_nvim", nil, { layout_fn = overing_layout })
--- local dev_txt = {"first line", "second line", "a", "b", "c"}
--- local dev_buf = vim.api.nvim_create_buf(false, false)
--- vim.api.nvim_buf_set_lines(dev_buf, 0, -1, false, dev_txt)
--- vim.api.nvim_open_win(dev_buf, true, {
--- 	split = "above",
--- 	win = 0,
--- 	height = vim.api.nvim_buf_line_count(dev_buf)
--- })
-
--- vim.api.nvim_open
--- ---@type vim.api.keyset.win_config
--- local test = "test"
--- if vim.fn.type(test) == 0 and vim.api.nvim_buf_is_valid(test) then
--- 	vim.print("all good")
--- 	else
--- 		vim.print("ah ouai nan")
--- 	end
--- vim.print(vim.fn.type(test))
