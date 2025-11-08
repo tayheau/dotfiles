@@ -240,69 +240,6 @@ local transitions = {
 	[string.byte("_")] = { state = "bold_snippet", hl = "PmenuMatch", trailing_spaces = 2 },
 }
 
-
-
-local parse_task = function(line, tag_list)
-	--Finite State Machine Parsing
-	local sm = {}
-	line = line:match("^%s*(.-)%s*$")
-	local raw_status, rest = line:match("^%[(.)%]%s*(.*)$")
-	if not raw_status then return end
-	local tags = {}
-	local text = rest:gsub("%b[]", function(tag)
-		table.insert(tags, tag:sub(2, -2))
-		tag_list[tag:sub(2, -2)] = true
-		return ""
-	end
-	)
-	local last_pos = 1
-	text = text:match("^%s*(.-)%s*$")
-	local test_tokens = {}
-	local tokens = {}
-	local code_s = ""
-	sm.input = text
-	sm.length = #sm.input
-	sm.i = 1
-	sm.current_transition = nil
-	sm.state = "text"
-	local state = "text"
-	-- while sm.i < sm.length do
-	-- 	sm.current = string.byte(sm.input, sm.i)
-	-- 	if not updated_transitions[sm.state][sm.current] then
-	-- 		sm.current_transition = updated_transitions[sm.state][0]
-	-- 		-- code_s = code_s .. text:sub(sm.i, sm.i)
-	-- 	else
-	-- 		sm.current_transition = updated_transitions[sm.state][sm.current]
-	-- 		-- if code_s ~= "" then table.insert(test_tokens, { sm.state, code_s }) end
-	-- 		-- sm.state = transition_fct(sm.state, string.byte(sm.string, sm.i))
-	-- 		-- code_s = ""
-	-- 	end
-	-- 	vim.print(sm.i)
-	-- 	sm.state = sm.current_transition[2]
-	-- 	sm.current_transition[1](sm)
-	-- 	-- sm.i = sm.i + 1
-	-- end
-	-- vim.print(sm.input)
-	-- if code_s ~= "" then vim.print({ state, code_s }) end
-	if code_s ~= "" then table.insert(test_tokens, { state, code_s }) end
-	for pre, code, post in text:gmatch("(.-)`(.-)`()") do
-		if pre ~= "" then
-			table.insert(tokens, { "text", pre })
-		end
-		table.insert(tokens, { "code_snippet", code })
-		last_pos = post
-	end
-	if last_pos <= #text then
-		table.insert(tokens, { "text", text:sub(last_pos) })
-	end
-	vim.print(test_tokens)
-
-
-	local status = status_map[raw_status]
-	return { status = status, tags = tags, tokens = tokens }
-end
-
-
 ---@param filename string Path of the tdmd file to parse
 local parse_tdmd = function(filename, options)
 	local sm = {}
@@ -359,7 +296,7 @@ end
 local overing_layout = function(buf, todo, i, ignore)
 	local mapping_snippet = {
 		["text"] = { hl = "" },
-		["code_snippet"] = { hl = "TodoCodeSnippet", trailing_spaces = 1 },
+		["code_snippet"] = { hl = "TodoCodeSnippet", trailing_spaces = 2 },
 		["italic_snippet"] = { hl = "", trailing_spaces = 2 }
 	}
 	local mapping_status = {
@@ -508,6 +445,18 @@ local filtering_tags = {
 	["to_do"] = true
 }
 
+---@param t table
+---@param value table
+--- Check if two tables have at least one common element
+local table_contains_table = function(t, value)
+	for _, v in pairs(value) do
+		if not vim.list_contains(t, v) then
+			return false
+		end
+	end
+	return true
+end
+
 ---@alias StringSet table< string, boolean >
 
 ---@class RenderOptions
@@ -526,14 +475,15 @@ local tdmd_render = function(filename, win_config, options)
 	local render = {}
 
 	if options.text_input then
-		render.buf_id = vim.api.nvim_create_buf(false, false)
+		render.buf = vim.api.nvim_create_buf(false, false)
 	else
 		render.filename = vim.fs.normalize(filename)
-		render.buf_id = vim.fn.bufadd(render.filename)
-		vim.fn.bufload(render.buf_id)
+		render.buf = vim.fn.bufadd(render.filename)
+		vim.fn.bufload(render.buf)
 	end
 
-	render.height = vim.api.nvim_buf_line_count(render.buf_id)
+	render.height = vim.api.nvim_buf_line_count(render.buf)
+
 
 	local base_win_config = {
 		height = render.height,
@@ -543,71 +493,109 @@ local tdmd_render = function(filename, win_config, options)
 
 	win_config = vim.tbl_deep_extend('force', base_win_config, win_config or {})
 
-	render.win_id = vim.api.nvim_open_win(render.buf_id, true, win_config or base_win_config)
+	render.win_id = vim.api.nvim_open_win(render.buf, true, win_config or base_win_config)
 
-	render.ns = vim.api.nvim_create_namespace("tdmd_render" .. render.buf_id)
+	render.ns = vim.api.nvim_create_namespace("tdmd_render" .. render.buf)
 	render.filter = options.filter or {}
 	render.lines = parse_tdmd(render.filename, { text_input = options.text_input })
 	render.last_tick = 0
+	render.cache = {}
 	render.pos = {}
 
 
 	local process_rendering = function()
 		local extmark_opts = nil
-		local skippable = false
-		vim.api.nvim_buf_clear_namespace(render.buf_id, render.ns, 0, -1)
+		local skippable, filtered = false, false
+		vim.api.nvim_buf_clear_namespace(render.buf, render.ns, 0, -1)
 		for i, l in pairs(render.lines) do
-			skippable = (next(render.pos) ~= nil and i >= render.pos[1] and i <= render.pos[2])
-			if next(l) ~= nil and not skippable then
-				extmark_opts = vim.fn.call(options.layout_fn, { render.buf_id, l, i, nil })
-				vim.api.nvim_buf_set_extmark(render.buf_id, render.ns, i - 1, 0, extmark_opts)
+			-- skippable = (next(render.pos) ~= nil and i >= render.pos[1] and i <= render.pos[2])
+			filtered = table_contains_table(l.tags, render.filter)
+			if next(l) ~= nil and filtered then
+			-- if next(l) ~= nil and not skippable and filtered then
+				extmark_opts = vim.fn.call(options.layout_fn, { render.buf, l, i, nil })
+				vim.api.nvim_buf_set_extmark(render.buf, render.ns, i - 1, 0, extmark_opts)
 			end
 		end
 	end
 
-	local update_lines = function()
+	local update_parsing = function()
 		render.lines = parse_tdmd(
-			table.concat(vim.api.nvim_buf_get_lines(render.buf_id, 0, -1, false), "\n") .. "\n",
+			table.concat(vim.api.nvim_buf_get_lines(render.buf, 0, -1, false), "\n") .. "\n",
 			{ text_input = true }
 		)
 	end
-	-- update_lines()
 
-	local update_render = function(skip_line)
-		render_todos(render.buf_id, render.lines, filtering_tags, false, skip_line, options.layout_fn, render.ns)
-	end
 	process_rendering()
 
 	---@param event vim.api.keyset.events
 	local autocmd = function(event, callback)
 		vim.api.nvim_create_autocmd(event, {
 			group = aucomd_group,
-			buffer = render.buf_id,
+			buffer = render.buf,
 			callback = callback,
 		})
 	end
 
-	autocmd("CursorMoved", function()
+	local render_cached_extmarks = function()
+		---@type vim.api.keyset.set_extmark
+		local opts = {}
+		local line_nb = nil
+		for _, v in pairs(render.cache.extmarks or {}) do
+			line_nb = v[2]
+			opts = {
+				hl_mode = v[4].hl_mode,
+				virt_text = v[4].virt_text,
+				virt_text_pos = v[4].virt_text_pos
+			}
+			vim.api.nvim_buf_set_extmark(render.buf, render.ns, line_nb, 0, opts)
+		end
+	end
+
+	local unrender_cached_extmarks = function()
+		local id = nil
+		for _, v in pairs(render.cache.extmarks or {}) do
+			id = v[1]
+			vim.api.nvim_buf_del_extmark(render.buf, render.ns, id)
+		end
+	end
+
+	local update_extmark_rendering = function()
+		render_cached_extmarks()
+		render.cache.extmarks = vim.api.nvim_buf_get_extmarks(render.buf, render.ns, { render.pos[1] - 1, 0 },
+			{ render.pos[2] - 1, 0 }, { details = true })
+		unrender_cached_extmarks()
+	end
+
+	local update_pos = function()
 		render.pos = { vim.fn.line("."), vim.fn.line("v") }
 		table.sort(render.pos)
-		process_rendering()
+	end
+
+	autocmd("CursorMoved", function()
+		update_pos()
+		update_extmark_rendering()
 	end
 	)
 
 	autocmd("ModeChanged", function(args)
 		if args.match:match("^[vV\x16]:n") then
-			render.pos = { vim.fn.line("."), vim.fn.line("v") }
-			process_rendering()
+			update_pos()
+			update_extmark_rendering()
 		end
 	end)
 
+	-- autocmd("WinResized", function(args)
+	-- 	vim.print(args)
+	-- end
+	-- )
+
 	autocmd({ "TextChanged", "InsertLeave" }, function()
-		if render.last_tick ~= vim.b[render.buf_id].changedtick then
-			update_lines()
-			render.pos = { vim.fn.line("."), vim.fn.line("v") }
-			table.sort(render.pos)
+		if render.last_tick ~= vim.b[render.buf].changedtick then
+			update_parsing()
+			update_pos()
 			process_rendering()
-			render.last_tick = vim.b[render.buf_id].changedtick
+			update_extmark_rendering()
+			render.last_tick = vim.b[render.buf].changedtick
 		end
 	end
 	)
@@ -618,5 +606,4 @@ local tdmd_render = function(filename, win_config, options)
 	end)
 end
 
-
-tdmd_render("~/todo_nvim", nil, { layout_fn = overing_layout })
+tdmd_render("~/todo_nvim", nil, { layout_fn = overing_layout, filter = { "dashboard" } })

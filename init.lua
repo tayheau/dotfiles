@@ -19,6 +19,7 @@ keymap('n', '<leader>q', ':quit<CR>')
 keymap('n', '<leader>so', ':write<CR> :source<CR>')
 
 vim.pack.add({
+	{ src = "https://github.com/chomosuke/typst-preview.nvim" },
 	{ src = "https://github.com/vague2k/vague.nvim" },
 	{ src = "https://github.com/echasnovski/mini.pick" },
 	{ src = "https://github.com/echasnovski/mini.completion" },
@@ -36,7 +37,8 @@ vim.lsp.enable({
 	"clangd",
 	"ts_ls",
 	"bashls",
-	"rust_analyzer"
+	"rust_analyzer",
+	"tinymist"
 })
 
 
