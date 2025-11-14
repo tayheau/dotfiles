@@ -232,14 +232,6 @@ local updated_transitions = {
 
 }
 
-local transitions = {
-	["text"] = { hl = "" },
-	["code_snippet"] = { state = "code_snippet", hl = "TodoCodeSnippet", trailing_spaces = 2 },
-	[0] = { state = "text" },
-	[string.byte("`")] = { state = "code_snippet", hl = "TodoCodeSnippet", trailing_spaces = 2 },
-	[string.byte("_")] = { state = "bold_snippet", hl = "PmenuMatch", trailing_spaces = 2 },
-}
-
 ---@param filename string Path of the tdmd file to parse
 local parse_tdmd = function(filename, options)
 	local sm = {}
@@ -291,14 +283,14 @@ local load_tasks = function(path)
 end
 
 
+local mapping_snippet = {
+	["text"] = { hl = "" },
+	["code_snippet"] = { hl = "TodoCodeSnippet", trailing_spaces = 2 },
+	["italic_snippet"] = { hl = "", trailing_spaces = 2 }
+}
 
 ---@return vim.api.keyset.set_extmark
 local overing_layout = function(buf, todo, i, ignore)
-	local mapping_snippet = {
-		["text"] = { hl = "" },
-		["code_snippet"] = { hl = "TodoCodeSnippet", trailing_spaces = 2 },
-		["italic_snippet"] = { hl = "", trailing_spaces = 2 }
-	}
 	local mapping_status = {
 		["done"] = "●",
 		["in_progress"] = "◎",
@@ -351,6 +343,11 @@ end
 -- ┗ UR
 
 
+local expand_callable = function(x, ...)
+	if vim.is_callable(x) then return x(...) end
+	return x
+end
+
 ---@param buf number
 ---@param sorting? boolean
 ---@param layout_fn function
@@ -396,49 +393,7 @@ end
 -- end
 
 -- to print the dashboard
-vim.api.nvim_create_autocmd("VimEnter", {
-	group = aucomd_group,
-	callback = function()
-		if vim.fn.argc(-1) > 0 then return end
-		local local_width = vim.o.columns
-		local local_height = vim.o.lines
-		local default_config = {
-			relative = "editor",
-			width = math.floor(.52 * local_width),
-			height = math.floor(.52 * local_height),
-			col = (local_width - math.floor(.52 * local_width)) / 2,
-			row = (local_height - math.floor(.52 * local_height)) / 2,
-			border = "none",
-			style = "minimal",
-		}
-		local buf = vim.api.nvim_create_buf(false, true)
-		local win = vim.api.nvim_open_win(buf, false, default_config)
-		local todo_list = load_tasks(todo_path)
-		local text = render_art_text(win, art, { "Welcome Tayheau" })
-		vim.api.nvim_buf_set_lines(buf, 0, -1, false, text)
-		local filtering_tags = {
-			["done"] = false,
-			["in_progress"] = true,
-			["to_do"] = true
-		}
-		-- vim.b[buf].largest_tag = compute_max_tag_length(todo_list)
-		render_todos(buf, todo_list, filtering_tags, true, nil, startup_layout)
-		local close_events = {
-			"InsertCharPre", "CursorMoved"
-		}
-		vim.api.nvim_create_autocmd(close_events, {
-			group = aucomd_group,
-			callback = function()
-				vim.schedule(function()
-					if vim.api.nvim_win_is_valid(win) then
-						vim.api.nvim_win_close(win, true)
-					end
-				end)
-			end
-		})
-	end
-})
-
+--
 local filtering_tags = {
 	["done"] = true,
 	["in_progress"] = true,
@@ -465,12 +420,13 @@ end
 ---@field filter? StringSet Tag filter table. If not precised every tag will be displayed, otherwise, only enabled tags will be.
 ---@field ordering? table<string>
 ---@field layout_fn function
+---@field enter_win? boolean Default to True.
 
 
 -- setup all autocmds and renderer allocated to a buffer
 ---@param filename string A valid `buffer_id`, filename or string to render (needs `inline_text` to be set to `true`). A buffer will be created with default `win_config` in the two last cases.
 ---@param options RenderOptions
----@param win_config? vim.api.keyset.win_config
+---@param win_config? vim.api.keyset.win_config|function
 local tdmd_render = function(filename, win_config, options)
 	local render = {}
 
@@ -491,16 +447,17 @@ local tdmd_render = function(filename, win_config, options)
 		win = 0,
 	}
 
-	win_config = vim.tbl_deep_extend('force', base_win_config, win_config or {})
-
-	render.win_id = vim.api.nvim_open_win(render.buf, true, win_config or base_win_config)
-
 	render.ns = vim.api.nvim_create_namespace("tdmd_render" .. render.buf)
 	render.filter = options.filter or {}
 	render.lines = parse_tdmd(render.filename, { text_input = options.text_input })
 	render.last_tick = 0
 	render.cache = {}
 	render.pos = {}
+	-- win_config = vim.tbl_deep_extend('force', base_win_config, win_config or {})
+	win_config = expand_callable(win_config, render)
+
+	render.win_id = vim.api.nvim_open_win(render.buf, options.enter_win, win_config or base_win_config)
+
 
 
 	local process_rendering = function()
@@ -511,7 +468,7 @@ local tdmd_render = function(filename, win_config, options)
 			-- skippable = (next(render.pos) ~= nil and i >= render.pos[1] and i <= render.pos[2])
 			filtered = table_contains_table(l.tags, render.filter)
 			if next(l) ~= nil and filtered then
-			-- if next(l) ~= nil and not skippable and filtered then
+				-- if next(l) ~= nil and not skippable and filtered then
 				extmark_opts = vim.fn.call(options.layout_fn, { render.buf, l, i, nil })
 				vim.api.nvim_buf_set_extmark(render.buf, render.ns, i - 1, 0, extmark_opts)
 			end
@@ -559,7 +516,9 @@ local tdmd_render = function(filename, win_config, options)
 		end
 	end
 
-	local update_extmark_rendering = function()
+	---@param reset? boolean Default to False. Weither to reset `render.cache.extmarks` to {} or not.
+	local update_extmark_rendering = function(reset)
+		if reset then render.cache.extmarks = {} end
 		render_cached_extmarks()
 		render.cache.extmarks = vim.api.nvim_buf_get_extmarks(render.buf, render.ns, { render.pos[1] - 1, 0 },
 			{ render.pos[2] - 1, 0 }, { details = true })
@@ -592,9 +551,9 @@ local tdmd_render = function(filename, win_config, options)
 	autocmd({ "TextChanged", "InsertLeave" }, function()
 		if render.last_tick ~= vim.b[render.buf].changedtick then
 			update_parsing()
-			update_pos()
 			process_rendering()
-			update_extmark_rendering()
+			update_pos()
+			update_extmark_rendering(true)
 			render.last_tick = vim.b[render.buf].changedtick
 		end
 	end
@@ -604,6 +563,63 @@ local tdmd_render = function(filename, win_config, options)
 		render.pos = {}
 		process_rendering()
 	end)
+	return render.win_id
 end
 
-tdmd_render("~/todo_nvim", nil, { layout_fn = overing_layout, filter = { "dashboard" } })
+-- tdmd_render("~/todo_nvim", nil, { layout_fn = overing_layout, filter = { "dashboard" } })
+---@return vim.api.keyset.win_config
+local get_starting_page_win_conf = function(render)
+	local win = vim.api.nvim_get_current_win()
+	local width = vim.o.columns
+	local height = vim.o.lines
+	-- vim.print(render.width)
+	local max = 0
+	local len = 4
+	local cl = ""
+	for _, l in pairs(render.lines) do
+		for _, t in pairs(l.tags) do
+			len = len + #t + 2
+		end
+		for _, to in pairs(l.tokens) do
+			len = len + #to[2] + (mapping_snippet[to[1]].trailing_spaces or 0) + 1
+		end
+		max = math.max(max, len)
+		len = 4
+		-- max = math.max(max, #l)
+	end
+	return {
+		relative = "editor",
+		width = max,
+		height = render.height,
+		row = math.floor((height - render.height) / 2),
+		col = math.floor((width - max) / 2),
+		style = "minimal",
+		-- border = "none",
+		focusable = false
+	}
+end
+
+
+vim.api.nvim_create_autocmd("VimEnter", {
+	group = aucomd_group,
+	callback = function()
+		if vim.fn.argc(-1) > 0 then return end
+		local win = tdmd_render("~/todo_nvim", get_starting_page_win_conf, { layout_fn = overing_layout, enter_win = false })
+
+		local close_events = {
+			"InsertCharPre", "CursorMoved"
+		}
+
+		vim.api.nvim_create_autocmd(close_events, {
+			group = aucomd_group,
+			callback = function()
+				vim.schedule(function()
+					if vim.api.nvim_win_is_valid(win) then
+						vim.api.nvim_win_close(win, true)
+					end
+				end)
+			end
+		})
+	end
+})
+-- tdmd_render("~/todo_nvim", get_starting_page_win_conf, { layout_fn = overing_layout, enter_win = true })
