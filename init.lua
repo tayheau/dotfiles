@@ -1,5 +1,3 @@
---require("dashboard")
-
 vim.opt.number = true
 vim.opt.relativenumber = true
 vim.opt.smartindent = true
@@ -63,6 +61,7 @@ require "nux".setup()
 require "mini.completion".setup()
 require "mini.pick".setup()
 require "mason".setup()
+-- require "dashboard".setup()
 
 keymap('n', '<leader>lf', vim.lsp.buf.format)
 keymap('n', '<leader>f', MiniPick.builtin.files)
@@ -77,5 +76,3 @@ keymap('t', '<leader>gnt', [[<C-\><C-N>]])
 keymap('n', '<leader>t', ':tabnew<CR> :tcd ~<CR>')
 
 vim.cmd("colorscheme vague")
-
-
