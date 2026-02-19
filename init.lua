@@ -21,54 +21,68 @@ keymap('n', '<leader>so', ':write<CR> :source<CR>')
 vim.pack.add({
 	{ src = "https://github.com/chomosuke/typst-preview.nvim" },
 	{ src = "https://github.com/vague2k/vague.nvim" },
-	{ src = "https://github.com/echasnovski/mini.pick" },
-	{ src = "https://github.com/echasnovski/mini.completion" },
+	{ src = "https://github.com/nvim-mini/mini.icons" },
+	{ src = "https://github.com/nvim-mini/mini.pick" },
+	{ src = "https://github.com/nvim-mini/mini.completion" },
 	{ src = "https://github.com/stevearc/oil.nvim" },
 	{ src = "https://github.com/neovim/nvim-lspconfig" },
 	{ src = "https://github.com/mason-org/mason.nvim" },
 	{ src = "https://github.com/tayheau/nux.nvim" },
+	{ src = "https://github.com/OXY2DEV/markview.nvim" }
 })
-
+--
 -- enable the lsp server
 vim.lsp.enable({
-	"lua_ls",
+	-- "lua_ls",
+	"svelte",
 	"basedpyright",
-	"ruff",
+	-- "ruff",
 	"clangd",
-	"ts_ls",
-	"bashls",
-	"rust_analyzer",
-	"tinymist"
+	"nextflow_ls",
+	-- "ts_ls",
+	-- "bashls",
+	-- "rust_analyzer",
+	-- "tinymist"
 })
 
+--
+-- vim.lsp.config("lua_ls", {
+-- 	settings = {
+-- 		Lua = {
+-- 			workspace = {
+-- 				library = vim.api.nvim_get_runtime_file("", true),
+-- 			}
+-- 		}
+-- 	}
+-- })
+--
+-- vim.diagnostic.config({
+-- 	virtual_text = { current_line = true }
+-- })
 
-vim.lsp.config("lua_ls", {
-	settings = {
-		Lua = {
-			workspace = {
-				library = vim.api.nvim_get_runtime_file("", true),
-			}
-		}
-	}
+require "markview".setup({
+    preview = {
+        icon_provider = "internal", -- "mini" or "devicons"
+    }
 })
-
-vim.diagnostic.config({
-	virtual_text = { current_line = true }
-})
-
 require "oil".setup()
 require "nux".setup()
 require "mini.completion".setup()
+require "mini.icons".setup({
+	style = 'ascii',
+})
 require "mini.pick".setup()
 require "mason".setup()
 -- require "dashboard".setup()
 
 keymap('n', '<leader>lf', vim.lsp.buf.format)
-keymap('n', '<leader>f', MiniPick.builtin.files)
+keymap('n', '<leader>f', function()
+	MiniPick.builtin.files({"rg"})
+end)
 keymap('n', '<leader>h', MiniPick.builtin.help)
 keymap('n', '<leader>b', MiniPick.builtin.buffers)
 keymap('n', '<leader>gr', MiniPick.builtin.grep_live)
-keymap('n', '<leader>p', Nux.pickWorkspace)
+-- keymap('n', '<leader>p', Nux.pickWorkspace)
 keymap('n', '<leader>-', ':Oil<CR>')
 keymap('n', '<leader>vs', ':vsplit<CR> <C-w>l :Pick files<CR>')
 keymap('n', '<leader>vt', ':vsplit<CR> <C-w>l :term<CR>')
@@ -76,3 +90,15 @@ keymap('t', '<leader>gnt', [[<C-\><C-N>]])
 keymap('n', '<leader>t', ':tabnew<CR> :tcd ~<CR>')
 
 vim.cmd("colorscheme vague")
+
+if vim.fn.has("wsl") == 1 then
+	vim.api.nvim_create_autocmd("TextYankPost", {
+		group = vim.api.nvim_create_augroup("yankwsl", {}),
+		desc = "yanking on the system clipboard from a wsl",
+		callback = function()
+			vim.system({"clip.exe"}, {
+				stdin = vim.fn.getreg('"')
+			})
+		end
+	})
+end
