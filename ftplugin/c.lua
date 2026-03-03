@@ -1,5 +1,7 @@
 local get_man_description_section = function(word)
 	local desc_start, desc_end = nil, nil
+	-- TODO
+	-- man -P cat _n _word
 	local res, content = pcall(vim.fn.systemlist, "man 3 " .. word .. " | col -b")
 	if not res or not content or #content == 0 then return nil end
 
