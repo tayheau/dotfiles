@@ -10,13 +10,14 @@ vim.opt.winborder = "rounded"
 vim.g.mapleader = " "
 vim.opt.termguicolors = true
 
+local function nmap(binding, effect) return vim.keymap.set('n', binding, effect, { silent = true }) end
 local function keymap(mode, binding, effect) return vim.keymap.set(mode, binding, effect, { silent = true }) end
 
-keymap('n', '<leader><left>', ':tabp<CR>')
-keymap('n', '<leader><right>', ':tabn<CR>')
-keymap('n', '<leader>w', ':write<CR>')
-keymap('n', '<leader>q', ':quit<CR>')
-keymap('n', '<leader>so', ':write<CR> :source<CR>')
+nmap('<leader><left>', ':tabp<CR>')
+nmap('<leader><right>', ':tabn<CR>')
+nmap('<leader>w', ':write<CR>')
+nmap('<leader>q', ':quit<CR>')
+nmap('<leader>so', ':write<CR> :source<CR>')
 
 vim.pack.add({
 	{ src = "https://github.com/chomosuke/typst-preview.nvim" },
@@ -33,16 +34,12 @@ vim.pack.add({
 --
 -- enable the lsp server
 vim.lsp.enable({
-	-- "lua_ls",
-	"svelte",
+	"lua_ls",
 	"basedpyright",
-	-- "ruff",
+	"ruff",
 	"clangd",
-	"nextflow_ls",
-	-- "ts_ls",
-	-- "bashls",
-	-- "rust_analyzer",
-	-- "tinymist"
+	"bashls",
+	"tinymist"
 })
 
 --
@@ -75,19 +72,19 @@ require "mini.pick".setup()
 require "mason".setup()
 -- require "dashboard".setup()
 
-keymap('n', '<leader>lf', vim.lsp.buf.format)
-keymap('n', '<leader>f', function()
+nmap('<leader>lf', vim.lsp.buf.format)
+nmap('<leader>f', function()
 	MiniPick.builtin.files({"rg"})
 end)
-keymap('n', '<leader>h', MiniPick.builtin.help)
-keymap('n', '<leader>b', MiniPick.builtin.buffers)
-keymap('n', '<leader>gr', MiniPick.builtin.grep_live)
--- keymap('n', '<leader>p', Nux.pickWorkspace)
-keymap('n', '<leader>-', ':Oil<CR>')
-keymap('n', '<leader>vs', ':vsplit<CR> <C-w>l :Pick files<CR>')
-keymap('n', '<leader>vt', ':vsplit<CR> <C-w>l :term<CR>')
+nmap('<leader>h', MiniPick.builtin.help)
+nmap('<leader>b', MiniPick.builtin.buffers)
+nmap('<leader>gr', MiniPick.builtin.grep_live)
+-- nmap('<leader>p', Nux.pickWorkspace)
+nmap('<leader>-', ':Oil<CR>')
+nmap('<leader>vs', ':vsplit<CR> <C-w>l :Pick files<CR>')
+nmap('<leader>vt', ':vsplit<CR> <C-w>l :term<CR>')
 keymap('t', '<leader>gnt', [[<C-\><C-N>]])
-keymap('n', '<leader>t', ':tabnew<CR> :tcd ~<CR>')
+nmap('<leader>t', ':tabnew<CR> :tcd ~<CR>')
 
 vim.cmd("colorscheme vague")
 

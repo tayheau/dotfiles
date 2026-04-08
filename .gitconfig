@@ -1,0 +1,7 @@
+[user]
+	name = tayheau
+	email = thopsore@pasteur.fr
+[init]
+	defaultBranch = main
+[core]
+	editor = nvim
