@@ -1,0 +1,37 @@
+{
+  "documentation": "\"This file is a QMK Configurator export. You can import this at <https://config.qmk.fm>. It can also be used directly with QMK's source code.\n\nTo setup your QMK environment check out the tutorial: <https://docs.qmk.fm/#/newbs>\n\nYou can convert this file to a keymap.c using this command: `qmk json2c {keymap}`\n\nYou can compile this keymap using this command: `qmk compile {keymap}`\"\n",
+  "notes": "My awesome keymap",
+  "version": 1,
+  "host_language": "french_mac_iso",
+  "converter": "liatris",
+  "keyboard": "ferris/0_1",
+  "keymap": "default",
+  "layout": "LAYOUT_split_3x5_2",
+  "layers": [
+    [
+      "FR_Q", "FR_W", "FR_F", "FR_P", "FR_B",                      "FR_J", "FR_L", "FR_U", "FR_Y", "KC_BSPC",
+      "FR_A", "FR_R", "LALT_T(FR_S)", "LGUI_T(FR_T)","FR_G",       "FR_M", "RGUI_T(FR_N)", "RALT_T(FR_E)", "FR_I", "FR_O",
+      "FR_Z", "FR_X", "FR_C", "FR_D", "FR_V",                      "FR_K", "FR_H", "FR_COMM", "FR_DOT", "FR_SLSH",
+      "OS_LSFT", "HYPR_T(KC_ENT)",                                 "KC_SPC", "TO(1)"
+    ],
+    [
+      "KC_ESC", "FR_AT", "FR_AMPR", "FR_DQUO", "FR_QUOT",          "FR_LBRC", "FR_LPRN", "FR_RPRN", "FR_RBRC", "KC_BSPC",
+      "KC_TAB", "FR_HASH", "FR_GRV", "KC_NO", "KC_NO",             "FR_PIPE", "FR_LCBR", "FR_RCBR", "FR_BSLS", "KC_ENT",
+      "KC_NO", "KC_NO", "KC_NO", "KC_NO", "KC_NO",                 "FR_TILD", "FR_SCLN", "FR_EQL", "KC_NO", "KC_NO",
+      "OS_LSFT", "TO(0)",                                          "OS_RALT", "TO(2)"
+    ],
+    [
+      "KC_ESC", "KC_NO", "KC_NO", "KC_NO", "KC_NO",                "KC_NO", "FR_7", "FR_8", "FR_9", "KC_BSPC",
+      "KC_NO", "KC_NO", "KC_NO", "KC_NO", "KC_NO",                 "KC_NO", "FR_4", "FR_5", "FR_6", "KC_ENT",
+      "KC_NO", "KC_NO", "KC_NO", "KC_NO", "KC_NO",                 "FR_0", "FR_1", "FR_2", "FR_3", "KC_NO",
+      "KC_NO", "TO(0)",                                            "KC_SPC", "KC_NO"
+    ],
+    [
+      "KC_NO", "KC_NO", "KC_NO", "KC_NO", "KC_NO",                 "KC_NO", "KC_NO", "KC_NO", "KC_NO", "KC_NO",
+      "KC_NO", "KC_NO", "KC_NO", "KC_NO", "KC_NO",                 "KC_NO", "KC_NO", "KC_NO", "KC_NO", "KC_NO",
+      "KC_NO", "KC_NO", "KC_NO", "KC_NO", "KC_NO",                 "KC_NO", "KC_NO", "KC_NO", "KC_NO", "KC_TRNS",
+      "KC_NO", "KC_NO", "KC_NO", "KC_NO"
+    ]
+  ],
+  "author": "@tayheau"
+}
