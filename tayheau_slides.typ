@@ -221,7 +221,7 @@
   ..args,
   body,
 ) = {
-  set text(size: 16pt)
+  set text(size: 16pt, font: "IBM Plex Sans")
 
   let header(self) = {
     block(
