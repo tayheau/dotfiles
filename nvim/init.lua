@@ -10,16 +10,16 @@ vim.opt.winborder = "rounded"
 vim.g.mapleader = " "
 vim.opt.termguicolors = true
 
-local function nmap(binding, effect) return vim.keymap.set('n', binding, effect, { silent = true }) end
 local function keymap(mode, binding, effect) return vim.keymap.set(mode, binding, effect, { silent = true }) end
 
-nmap('<leader><left>', ':tabp<CR>')
-nmap('<leader><right>', ':tabn<CR>')
-nmap('<leader>w', ':write<CR>')
-nmap('<leader>q', ':quit<CR>')
-nmap('<leader>so', ':write<CR> :source<CR>')
+keymap('n', '<leader><left>', ':tabp<CR>')
+keymap('n', '<leader><right>', ':tabn<CR>')
+keymap('n', '<leader>w', ':write<CR>')
+keymap('n', '<leader>q', ':quit<CR>')
+keymap('n', '<leader>so', ':write<CR> :source<CR>')
 
 vim.pack.add({
+	{ src = "https://github.com/melvi-l/housp.nvim" },
 	{ src = "https://github.com/chomosuke/typst-preview.nvim" },
 	{ src = "https://github.com/vague2k/vague.nvim" },
 	{ src = "https://github.com/nvim-mini/mini.icons" },
@@ -34,12 +34,16 @@ vim.pack.add({
 --
 -- enable the lsp server
 vim.lsp.enable({
-	"lua_ls",
+	-- "lua_ls",
+	"svelte",
 	"basedpyright",
-	"ruff",
+	-- "ruff",
 	"clangd",
-	"bashls",
-	"tinymist"
+	"nextflow_ls",
+	-- "ts_ls",
+	-- "bashls",
+	-- "rust_analyzer",
+	-- "tinymist"
 })
 
 --
@@ -66,25 +70,32 @@ require "oil".setup()
 require "nux".setup()
 require "mini.completion".setup()
 require "mini.icons".setup({
-	style = 'ascii',
+	style = 'glyph',
 })
 require "mini.pick".setup()
 require "mason".setup()
 -- require "dashboard".setup()
+local housp = require "housp"
+vim.keymap.set({ "n", "v" }, "<leader>cp", housp.copy_permalink({}), { noremap = true, silent = true })
+vim.keymap.set({ "n", "v" }, "<leader>op", housp.open_permalink({}), { noremap = true, silent = true })
+vim.keymap.set("v", "<leader>sp", housp.copy_snippet({ should_dedent = true, has_langage = true, has_permalink = true }), { noremap = true, silent = true })
+vim.keymap.set("n", "<leader>of", function() 
+    vim.ui.input({ prompt = "Git URL: " }, housp.setup_permalink({}))
+end, { noremap = true, silent = true }) -- args default to system clipboard register
 
-nmap('<leader>lf', vim.lsp.buf.format)
-nmap('<leader>f', function()
+keymap('n', '<leader>lf', vim.lsp.buf.format)
+keymap('n', '<leader>f', function()
 	MiniPick.builtin.files({"rg"})
 end)
-nmap('<leader>h', MiniPick.builtin.help)
-nmap('<leader>b', MiniPick.builtin.buffers)
-nmap('<leader>gr', MiniPick.builtin.grep_live)
--- nmap('<leader>p', Nux.pickWorkspace)
-nmap('<leader>-', ':Oil<CR>')
-nmap('<leader>vs', ':vsplit<CR> <C-w>l :Pick files<CR>')
-nmap('<leader>vt', ':vsplit<CR> <C-w>l :term<CR>')
+keymap('n', '<leader>h', MiniPick.builtin.help)
+keymap('n', '<leader>b', MiniPick.builtin.buffers)
+keymap('n', '<leader>gr', MiniPick.builtin.grep_live)
+-- keymap('n', '<leader>p', Nux.pickWorkspace)
+keymap('n', '<leader>-', ':Oil<CR>')
+keymap('n', '<leader>vs', ':vsplit<CR> <C-w>l :Pick files<CR>')
+keymap('n', '<leader>vt', ':vsplit<CR> <C-w>l :term<CR>')
 keymap('t', '<leader>gnt', [[<C-\><C-N>]])
-nmap('<leader>t', ':tabnew<CR> :tcd ~<CR>')
+keymap('n', '<leader>t', ':tabnew<CR> :tcd ~<CR>')
 
 vim.cmd("colorscheme vague")
 
