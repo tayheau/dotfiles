@@ -3,6 +3,7 @@ export PS1="\[\e[41m\]\w\[\e[0m\]"
 alias gs="git status"
 alias gl="git log"
 alias gup="git fetch upstream main && git rebase upstream main"
+alias gfix="git commit --fixup HEAD && git rebase --autosquash HEAD~2"
 alias gc="git commit"
 
 
