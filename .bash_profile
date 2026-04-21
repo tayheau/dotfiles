@@ -1,4 +1,3 @@
-# export PS1="\[\e[41m\]\w\[\e[0m\]"
 [[ -x "$(which wslinfo)" ]] && alias open="cmd.exe /C start &>/dev/null" 
 
 alias gs="git status"
@@ -7,10 +6,8 @@ alias gup="git fetch upstream main && git rebase upstream main"
 alias gfix="git commit --fixup HEAD && git rebase --autosquash HEAD~2"
 alias gc="git commit"
 
-
-
 gpr() {
-	open "https://github.com"
+	open "https://github.com/$(git remote get-url upstream | sed 's@.*:\(.*\)\.git@\1@')/compare/main...tayheau:$(basename `git rev-parse --show-toplevel`):$(git branch --show-current)?expand=1"
 }
 
 
