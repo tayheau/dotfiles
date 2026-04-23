@@ -2,9 +2,14 @@
 
 alias gs="git status"
 alias gl="git log"
-alias gup="git fetch upstream main && git rebase upstream main"
+alias gup="git pull --rebase upstream main"
 alias gfix="git commit --fixup HEAD && git rebase --autosquash HEAD~2"
 alias gc="git commit"
+
+gd() {
+	# echo "lol"
+	git diff origin/$(git branch --show-current) | riff
+}
 
 gpr() {
 	open "https://github.com/$(git remote get-url upstream | sed 's@.*:\(.*\)\.git@\1@')/compare/main...tayheau:$(basename `git rev-parse --show-toplevel`):$(git branch --show-current)?expand=1"
