@@ -66,7 +66,9 @@ require "markview".setup({
         icon_provider = "internal", -- "mini" or "devicons"
     }
 })
-require "oil".setup()
+require "oil".setup({
+	view_options = { show_hidden = true }
+})
 require "nux".setup()
 require "mini.completion".setup()
 require "mini.icons".setup({

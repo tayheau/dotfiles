@@ -8,7 +8,7 @@ alias gc="git commit"
 
 gd() {
 	# echo "lol"
-	git diff origin/$(git branch --show-current) | riff
+	git diff origin/$(git branch --show-current) | giff
 }
 
 gpr() {
