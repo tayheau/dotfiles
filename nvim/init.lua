@@ -34,7 +34,7 @@ vim.pack.add({
 --
 -- enable the lsp server
 vim.lsp.enable({
-	-- "lua_ls",
+	"lua_ls",
 	"svelte",
 	"basedpyright",
 	-- "ruff",
@@ -47,19 +47,19 @@ vim.lsp.enable({
 })
 
 --
--- vim.lsp.config("lua_ls", {
--- 	settings = {
--- 		Lua = {
--- 			workspace = {
--- 				library = vim.api.nvim_get_runtime_file("", true),
--- 			}
--- 		}
--- 	}
--- })
---
--- vim.diagnostic.config({
--- 	virtual_text = { current_line = true }
--- })
+vim.lsp.config("lua_ls", {
+	settings = {
+		Lua = {
+			workspace = {
+				library = vim.api.nvim_get_runtime_file("", true),
+			}
+		}
+	}
+})
+
+vim.diagnostic.config({
+	virtual_text = { current_line = true }
+})
 
 require "markview".setup({
     preview = {
@@ -112,3 +112,63 @@ if vim.fn.has("wsl") == 1 then
 		end
 	})
 end
+
+-- local function show_document_methods()
+-- 	local clients = vim.lsp.get_clients({ bufnr = 0 })
+-- 	if #clients == 0 then
+-- 		vim.notify("No LSP client in this buffer", vim.log.levels.ERROR)
+-- 		return
+-- 	end
+--
+-- 	local params = { textDocument = vim.lsp.util.make_text_document_params() }
+-- 	vim.lsp.buf_request_all(0, 'textDocument/documentSymbol', params, function(result)
+-- 			if not result or vim.tbl_isempty(result) then
+-- 				vim.notify("No LSP results", vim.log.levels.WARN)
+-- 			return
+-- 		end
+-- 		for client_id, res in pairs(result) do
+-- 	end)
+-- end
+--
+-- keymap("n", "<leader>go", show_document_methods)
+--
+
+local function quickfix_symbol()
+	local client = vim.lsp.get_clients({ bufnr = 0 })
+	if #client == 0 then 
+		vim.notify("No LSP client found.", vim.log.levels.ERROR)
+		return 
+	end
+	
+	local params = { textDocument = vim.lsp.util.make_text_document_params(0) }
+	local KIND = { [5] = true, [12] = true, [6] = true }
+	local win = vim.api.nvim_get_current_win()
+	local bufnr = vim.api.nvim_get_current_buf()
+
+	if vim.bo[bufnr].filetype == "fancysymbol" then
+		vim.cmd("close")
+		return
+	end
+
+	vim.lsp.buf_request_all(bufnr, "textDocument/documentSymbol", params, function(res)
+		if not res or vim.tbl_isempty(res) then return end
+		_, res = next(res)
+		if not res.result or #res.result == 0 then return end
+		res = res.result
+		win_conifg = {
+			relative = "editor",
+			row = 1,
+			col = 0,
+			width = vim.o.columns,
+			height = vim.o.lines, 
+		}
+
+		local buf = vim.api.nvim_create_buf(false, true)
+		vim.api.nvim_buf_set_name(buf, "__Symbols__")
+		vim.bo[buf].buftype = "nofile"
+		vim.bo[buf].bufhidden = 'wipe'
+		local new_win = vim.api.nvim_open_win(buf, true, win_conifg) 
+	end)
+end
+
+keymap("n", "<leader>go", quickfix_symbol)
