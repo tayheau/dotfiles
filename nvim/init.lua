@@ -113,41 +113,27 @@ if vim.fn.has("wsl") == 1 then
 	})
 end
 
--- local function show_document_methods()
--- 	local clients = vim.lsp.get_clients({ bufnr = 0 })
--- 	if #clients == 0 then
--- 		vim.notify("No LSP client in this buffer", vim.log.levels.ERROR)
--- 		return
--- 	end
---
--- 	local params = { textDocument = vim.lsp.util.make_text_document_params() }
--- 	vim.lsp.buf_request_all(0, 'textDocument/documentSymbol', params, function(result)
--- 			if not result or vim.tbl_isempty(result) then
--- 				vim.notify("No LSP results", vim.log.levels.WARN)
--- 			return
--- 		end
--- 		for client_id, res in pairs(result) do
--- 	end)
--- end
---
--- keymap("n", "<leader>go", show_document_methods)
---
-
 local function quickfix_symbol()
-	local client = vim.lsp.get_clients({ bufnr = 0 })
-	if #client == 0 then 
-		vim.notify("No LSP client found.", vim.log.levels.ERROR)
-		return 
-	end
-	
-	local params = { textDocument = vim.lsp.util.make_text_document_params(0) }
-	local KIND = { [5] = true, [12] = true, [6] = true }
-	local win = vim.api.nvim_get_current_win()
 	local bufnr = vim.api.nvim_get_current_buf()
-
 	if vim.bo[bufnr].filetype == "fancysymbol" then
 		vim.cmd("close")
 		return
+	end
+
+	local client = vim.lsp.get_clients({ bufnr = 0 })
+	if #client == 0 then
+		vim.notify("No LSP client found.", vim.log.levels.ERROR)
+		return
+	end
+
+	local params = { textDocument = vim.lsp.util.make_text_document_params(0) }
+	local KIND = { [5] = {name="class", hl={fg="#3fe090", bold=true}},
+								 [12] = {name="func", hl={fg="#e07d3f"}},
+								 [6] = {name="method", hl={fg="#3fe0d8"}},
+							 }
+
+	for _, vals in pairs(KIND) do
+		vim.api.nvim_set_hl(0, vals.name, vals.hl)
 	end
 
 	vim.lsp.buf_request_all(bufnr, "textDocument/documentSymbol", params, function(res)
@@ -155,19 +141,66 @@ local function quickfix_symbol()
 		_, res = next(res)
 		if not res.result or #res.result == 0 then return end
 		res = res.result
-		win_conifg = {
-			relative = "editor",
-			row = 1,
-			col = 0,
-			width = vim.o.columns,
-			height = vim.o.lines, 
+
+		local win_conifg = {
+			win = 0,
+			split="below",
+			height = 9,
 		}
+	local origin_win = vim.api.nvim_get_current_win()
 
 		local buf = vim.api.nvim_create_buf(false, true)
 		vim.api.nvim_buf_set_name(buf, "__Symbols__")
 		vim.bo[buf].buftype = "nofile"
 		vim.bo[buf].bufhidden = 'wipe'
-		local new_win = vim.api.nvim_open_win(buf, true, win_conifg) 
+		vim.bo[buf].filetype = "fancysymbol"
+		local win = vim.api.nvim_open_win(buf, true, win_conifg)
+
+		local toprint = {}; local extmarks = {}; local pos = {}
+		local ns = vim.api.nvim_create_namespace("symbolsns")
+
+
+		local function traverse_symbols(list, depth)
+			for _, el in ipairs(list) do
+				if KIND[el.kind] then
+					local s_indent = string.rep("\t", depth)
+					local s_type = string.format("%s%s", s_indent, KIND[el.kind].name)
+					local txt = string.format("%s %s",  s_type, el.name)
+
+					table.insert(extmarks, {line=#toprint, opts={end_col=#s_type, hl_group = KIND[el.kind].name}})
+					table.insert(toprint, txt)
+					table.insert(pos, el.selectionRange.start)
+
+					if el.children and #el.children > 0 then
+						traverse_symbols(el.children, depth + 1)
+					end
+				end
+			end
+		end
+
+		traverse_symbols(res, 0)
+
+		vim.api.nvim_buf_set_text(buf, 0, 0, -1, -1, toprint)
+		for _, ext in ipairs(extmarks) do
+			vim.api.nvim_buf_set_extmark(buf, ns, ext.line, 0, ext.opts)
+		end
+
+		vim.api.nvim_buf_set_keymap(buf, "n", "<CR>", "", {
+			noremap=true, silent=true,
+			callback=function()
+				local current_line = vim.api.nvim_win_get_cursor(0)[1]
+				local selected_pos = pos[current_line]
+				if selected_pos then
+					vim.api.nvim_set_current_win(origin_win)
+					vim.api.nvim_win_set_cursor(origin_win, {selected_pos.line+1, selected_pos.character})
+					vim.api.nvim_input("zz")
+					-- vim.print(selected_pos)
+				end
+			end
+			})
+
+		vim.api.nvim_win_set_cursor(win, {1, 0})
+		vim.bo[buf].modifiable = false
 	end)
 end
 
