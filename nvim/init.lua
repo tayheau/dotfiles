@@ -46,7 +46,22 @@ vim.lsp.enable({
 	-- "tinymist"
 })
 
---
+local function python_path()
+	local path = vim.fn.getcwd() .. "/.venv/bin/python"
+	if vim.fn.executable(path) == 1 then
+		return path
+	end
+end
+
+vim.lsp.config("basedpyright", {
+	settings = {
+		python = {
+			venvPath = vim.fn.getcwd() .. "/.venv",
+			pythonPath =  python_path(),
+		}
+	},
+})
+
 vim.lsp.config("lua_ls", {
 	settings = {
 		Lua = {
@@ -144,8 +159,9 @@ local function quickfix_symbol()
 
 		local win_conifg = {
 			win = 0,
-			split="below",
-			height = 9,
+			split="right",
+			-- height = 9,
+			width = 45,
 		}
 	local origin_win = vim.api.nvim_get_current_win()
 
