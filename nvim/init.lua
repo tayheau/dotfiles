@@ -54,9 +54,13 @@ local function python_path()
 end
 
 vim.lsp.config("basedpyright", {
+	root_markers = {
+		{".venv"},
+	},
 	settings = {
 		python = {
-			venvPath = vim.fn.getcwd() .. "/.venv",
+			venvPath = vim.fn.getcwd(),
+			venv = ".venv",
 			pythonPath =  python_path(),
 		}
 	},
