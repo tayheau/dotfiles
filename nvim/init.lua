@@ -46,24 +46,22 @@ vim.lsp.enable({
 	-- "tinymist"
 })
 
-local function python_path()
-	local path = vim.fn.getcwd() .. "/.venv/bin/python"
-	if vim.fn.executable(path) == 1 then
-		return path
-	end
+--- @return string@ /home/.../.venv
+local function find_venv(cd, ld)
+	cd = vim.fs.normalize(cd or vim.fn.getcwd())
+	ld = vim.fs.normalize(ld or vim.env.HOME)
+	local exist = vim.fs.find(".venv", {path=cd, upward=true, stop=ld, type="directory"})[1]
+	return exist and vim.fs.normalize(exist) or nil
 end
 
 vim.lsp.config("basedpyright", {
-	root_markers = {
-		{".venv"},
-	},
-	settings = {
-		python = {
-			venvPath = vim.fn.getcwd(),
-			venv = ".venv",
-			pythonPath =  python_path(),
-		}
-	},
+	root_markers = {".venv"},
+	before_init = function(_, config)
+		local venv = find_venv(nil, "~/code")
+		if not venv then return end
+		config.settings = vim.tbl_deep_extend("force", config.settings or {}, {
+			python={venvPath=vim.fs.dirname(venv), venv=vim.fs.basename(venv), pythonPath=vim.fs.joinpath(venv, "bin", "python")}})
+	end
 })
 
 vim.lsp.config("lua_ls", {
@@ -117,6 +115,7 @@ keymap('n', '<leader>vs', ':vsplit<CR> <C-w>l :Pick files<CR>')
 keymap('n', '<leader>vt', ':vsplit<CR> <C-w>l :term<CR>')
 keymap('t', '<leader>gnt', [[<C-\><C-N>]])
 keymap('n', '<leader>t', ':tabnew<CR> :tcd ~<CR>')
+keymap('n', '<leader>df', "f(%x``dbx")
 
 vim.cmd("colorscheme vague")
 
@@ -214,6 +213,7 @@ local function quickfix_symbol()
 					vim.api.nvim_set_current_win(origin_win)
 					vim.api.nvim_win_set_cursor(origin_win, {selected_pos.line+1, selected_pos.character})
 					vim.api.nvim_input("zz")
+					vim.api.nvim_win_close(win, false)
 					-- vim.print(selected_pos)
 				end
 			end
