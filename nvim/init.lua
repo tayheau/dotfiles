@@ -31,15 +31,25 @@ vim.pack.add({
 	{ src = "https://github.com/tayheau/nux.nvim" },
 	{ src = "https://github.com/OXY2DEV/markview.nvim" }
 })
+
+vim.api.nvim_create_autocmd({'BufEnter', 'BufWinEnter'}, {
+	pattern=vim.fn.expand('~')..'/code/tinygrad/*.py',
+	callback = function()
+		vim.opt_local.tabstop = 2
+		vim.opt_local.shiftwidth = 2
+	end
+})
+
 --
 -- enable the lsp server
 vim.lsp.enable({
 	"lua_ls",
 	"svelte",
-	"basedpyright",
-	-- "ruff",
+	-- "basedpyright",
+	"ruff",
 	"clangd",
 	"nextflow_ls",
+	"ty",
 	-- "ts_ls",
 	-- "bashls",
 	-- "rust_analyzer",
