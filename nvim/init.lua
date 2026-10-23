@@ -33,10 +33,14 @@ vim.pack.add({
 })
 
 vim.api.nvim_create_autocmd({'BufEnter', 'BufWinEnter'}, {
-	pattern=vim.fn.expand('~')..'/code/tinygrad/*.py',
+	pattern="/.py",
 	callback = function()
-		vim.opt_local.tabstop = 2
-		vim.opt_local.shiftwidth = 2
+		local filepath = vim.fn.expand("%:p")
+		local trgt = vim.fn.expand("~/code/tinygrad/")
+		if vim.startswith(filepath, trgt) then
+			vim.opt_local.tabstop = 2
+			vim.opt_local.shiftwidth = 2
+		end
 	end
 })
 
