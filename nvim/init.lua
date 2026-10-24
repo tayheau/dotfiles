@@ -32,17 +32,16 @@ vim.pack.add({
 	{ src = "https://github.com/OXY2DEV/markview.nvim" }
 })
 
-vim.api.nvim_create_autocmd({'BufEnter', 'BufWinEnter'}, {
+vim.api.nvim_create_autocmd({"BufAdd"}, {
 	pattern="*.py",
 	callback = function()
 		local filepath = vim.fn.expand("%:p")
 		local trgt = vim.fn.expand("~/code/tinygrad/")
-		vim.print(filepath)
-		vim.print(trgt)
 		if vim.startswith(filepath, trgt) then
-			vim.print("yes")
 			vim.opt_local.tabstop = 2
 			vim.opt_local.shiftwidth = 2
+			vim.opt_local.softtabstop = 2
+			vim.opt_local.expandtab = true
 		end
 	end
 })
@@ -71,7 +70,7 @@ local function find_venv(cd, ld)
 	return exist and vim.fs.normalize(exist) or nil
 end
 
-vim.lsp.config("basedpyright", {
+vim.lsp.config("ty", {
 	root_markers = {".venv"},
 	before_init = function(_, config)
 		local venv = find_venv(nil, "~/code")
